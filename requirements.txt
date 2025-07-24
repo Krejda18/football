@@ -1,0 +1,6 @@
+streamlit
+pandas
+streamlit-aggrid
+numpy
+google-cloud-aiplatform
+openpyxl
