@@ -303,7 +303,7 @@ st.set_page_config(page_title="Skautingový report", page_icon="/Users/krejda/Do
 left_col, right_col = st.columns([4,  1])
 
 with right_col:
-    st.image("/Users/krejda/Documents/Python/Aplikace/player_app/logo.png", width=500) # Zde můžete mít jakékoliv logo aplikace
+    st.image("logo.png", width=500) # Zde můžete mít jakékoliv logo aplikace
 
 st.sidebar.title("Navigace")
 app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče"])
