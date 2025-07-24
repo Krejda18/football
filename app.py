@@ -10,7 +10,7 @@ from player_analysis import (
 )
 
 # --- Cesty ---
-DATA_DIR = "/Users/krejda/Documents/Python/Football/Player_Rating/Data"
+DATA_DIR = "Data"
 
 # --- Pomocné funkce a styly ---
 def rating_text_color(val):
