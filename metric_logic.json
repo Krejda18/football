@@ -1,0 +1,762 @@
+{
+  "DR": {
+    "Defenziva": {
+      "weight": 1.0,
+      "Soubojová intezita na zemi": {
+        "weight": 0.5,
+        "Successful defensive actions per 90": 1.0,
+        "Defensive duels per 90": 1.0,
+        "Shots blocked per 90": 0.3,
+        "Loose ball duels per 90": 1.0
+      },
+      "Soubojová kvalita na zemi": {
+        "weight": 1.0,
+        "Successful defensive actions per 90": 0.9,
+        "PAdj Interceptions": 0.9,
+        "Defensive duels won": 1.0,
+        "Loose ball duels won": 1.0
+      },
+      "Počet soubojů ve vzduchu": {
+        "weight": 0.3,
+        "Aerial duels per 90": 1.0
+      },
+      "Kvalita ve vzduchu": {
+        "weight": 0.5,
+        "Aerial duels won": 1.0
+      }
+    },
+    "Ofenziva": {
+      "weight": 0.7,
+      "Zakončení": {
+        "weight": 0.3,
+        "Goals per 90": 1.0,
+        "xG per 90": 1.0,
+        "Shots per 90": 1.0,
+        "Shots on target": 1.0,
+        "Goal conversion": 1.0
+      },
+      "Příprava šancí": {
+        "weight": 1.0,
+        "Assists per 90": 1.0,
+        "xA per 90": 1.0,
+        "Shot assists per 90": 1.0,
+        "Second assists per 90": 0.2,
+        "Third assists per 90": 0.2,
+        "Key passes per 90": 1.0
+      },
+      "Počet centrů": {
+        "weight": 0.5,
+        "Crosses per 90": 1.0
+      },
+      "Kvalita centrů": {
+        "weight": 0.9,
+        "Accurate crosses": 1.0
+      }
+    },
+    "Dostat se přes hráče": {
+      "weight": 0.8,
+      "Počet pokusů dostat se přes hráče": {
+        "weight": 1.0,
+        "Dribbles per 90": 1.0,
+        "Offensive duels per 90": 1.0,
+        "Progressive runs per 90": 1.0
+      },
+      "Úspěšnost dostat se přes hráče": {
+        "weight": 1.0,
+        "Successful dribbles": 1.0,
+        "Offensive duels won": 1.0,
+        "Progressive runs per 90": 1.0
+      }
+    },
+    "Přihrávky": {
+      "weight": 1.0,
+      "Základní přihrávky aktivita": {
+        "weight": 0.6,
+        "Received passes per 90": 1.0,
+        "Passes per 90": 1.0,
+        "Forward passes per 90": 1.0,
+        "Back passes per 90": 1.0,
+        "Lateral passes per 90": 1.0
+      },
+      "Základní přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate passes": 1.0,
+        "Accurate forward passes": 1.0,
+        "Accurate back passes": 1.0,
+        "Accurate lateral passes": 1.0,
+        "Accurate short / medium passes": 1.0,
+        "Accurate long passes": 1.0,
+        "Accurate passes to final third": 1.0,
+        "Effective Passing Index": 1.0
+      },
+      "Nadstavbové přihrávky aktivita": {
+        "weight": 0.4,
+        "Smart passes per 90": 1.0,
+        "Key passes per 90": 1.0,
+        "Through passes per 90": 1.0,
+        "Progressive passes per 90": 1.0,
+        "Shot assists per 90": 1.0
+      },
+      "Nadstavbové přihrávky kvalita": {
+        "weight": 0.8,
+        "Accurate smart passes": 1.0,
+        "Accurate through passes": 1.0,
+        "Accurate progressive passes": 1.0,
+        "Effective Passing Index": 0.9
+      }
+    }
+  },
+  "DC": {
+    "Defenziva": {
+      "weight": 1.0,
+      "Soubojová intezita na zemi": {
+        "weight": 0.5,
+        "Successful defensive actions per 90": 1.0,
+        "Defensive duels per 90": 1.0,
+        "Shots blocked per 90": 0.5,
+        "Loose ball duels per 90": 1.0
+      },
+      "Soubojová kvalita na zemi": {
+        "weight": 1.0,
+        "Successful defensive actions per 90": 0.6,
+        "PAdj Interceptions": 0.9,
+        "Defensive duels won": 1.0,
+        "Loose ball duels won": 1.0
+      },
+      "Počet soubojů ve vzduchu": {
+        "weight": 0.4,
+        "Aerial duels per 90": 1.0
+      },
+      "Kvalita ve vzduchu": {
+        "weight": 0.7,
+        "Aerial duels won": 1.0
+      }
+    },
+    "Ofenziva": {
+      "weight": 0.2,
+      "Zakončení": {
+        "weight": 0.6,
+        "Goals per 90": 1.0,
+        "xG per 90": 1.0,
+        "Shots per 90": 1.0,
+        "Shots on target": 1.0,
+        "Goal conversion": 1.0
+      },
+      "Aktivita ve vápně soupeře": {
+        "weight": 1.0,
+        "xG per 90": 1.0,
+        "Shots per 90": 1.0,
+        "Touches in box per 90": 1.0
+      }
+    },
+    "Vyvážení přes řady": {
+      "weight": 0.3,
+      "Vyvážení počet pokusů": {
+        "weight": 1.0,
+        "Dribbles per 90": 0.6,
+        "Offensive duels per 90": 0.6,
+        "Progressive runs per 90": 1.0
+      },
+      "Vyvážení kvalita": {
+        "weight": 1.0,
+        "Successful dribbles": 1.0,
+        "Offensive duels won": 1.0,
+        "Progressive runs per 90": 1.0
+      }
+    },
+    "Přihrávky": {
+      "weight": 0.9,
+      "Základní přihrávky aktivita": {
+        "weight": 0.7,
+        "Received passes per 90": 1.0,
+        "Passes per 90": 1.0,
+        "Forward passes per 90": 1.0,
+        "Back passes per 90": 1.0,
+        "Lateral passes per 90": 1.0
+      },
+      "Základní přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate passes": 1.0,
+        "Accurate forward passes": 1.0,
+        "Accurate back passes": 1.0,
+        "Accurate lateral passes": 1.0,
+        "Accurate short / medium passes": 1.0,
+        "Accurate long passes": 1.0,
+        "Accurate passes to final third": 1.0,
+        "Effective Passing Index": 1.0
+      },
+      "Nadstavbové přihrávky aktivita": {
+        "weight": 0.4,
+        "Smart passes per 90": 1.0,
+        "Through passes per 90": 1.0,
+        "Progressive passes per 90": 1.0,
+        "Shot assists per 90": 0.6
+      },
+      "Nadstavbové přihrávky kvalita": {
+        "weight": 0.8,
+        "Accurate smart passes": 1.0,
+        "Accurate through passes": 1.0,
+        "Accurate progressive passes": 1.0,
+        "Effective Passing Index": 0.9
+      }
+    }
+  },
+  "DMC": {
+    "Defenziva": {
+      "weight": 1.0,
+      "Soubojová intezita na zemi": {
+        "weight": 1.0,
+        "Successful defensive actions per 90": 1.0,
+        "Defensive duels per 90": 1.0,
+        "Shots blocked per 90": 0.6,
+        "Loose ball duels per 90": 1.0
+      },
+      "Soubojová kvalita na zemi": {
+        "weight": 1.0,
+        "Successful defensive actions per 90": 0.9,
+        "PAdj Interceptions": 0.9,
+        "Defensive duels won": 1.0,
+        "Loose ball duels won": 1.0
+      },
+      "Počet soubojů ve vzduchu": {
+        "weight": 0.3,
+        "Aerial duels per 90": 1.0
+      },
+      "Kvalita ve vzduchu": {
+        "weight": 0.4,
+        "Aerial duels won": 1.0
+      },
+      "Pokrytí hřiště": {
+        "weight": 0.8,
+        "PAdj Interceptions": 1.0,
+        "Loose ball duels per 90": 1.0
+      }
+    },
+    "Ofenziva": {
+      "weight": 0.4,
+      "Zakončení": {
+        "weight": 0.3,
+        "Goals per 90": 1.0,
+        "xG per 90": 1.0,
+        "Shots per 90": 1.0,
+        "Shots on target": 1.0,
+        "Goal conversion": 1.0
+      },
+      "Příprava šancí": {
+        "weight": 1.0,
+        "Assists per 90": 1.0,
+        "xA per 90": 1.0,
+        "Shot assists per 90": 1.0,
+        "Second assists per 90": 0.3,
+        "Third assists per 90": 0.3,
+        "Key passes per 90": 1.0
+      }
+    },
+    "Dostat se přes hráče": {
+      "weight": 0.5,
+      "Počet pokusů dostat se přes hráče": {
+        "weight": 1.0,
+        "Dribbles per 90": 1.0,
+        "Offensive duels per 90": 1.0,
+        "Progressive runs per 90": 1.0
+      },
+      "Úspěšnost dostat se přes hráče": {
+        "weight": 1.0,
+        "Successful dribbles": 1.0,
+        "Offensive duels won": 1.0,
+        "Progressive runs per 90": 1.0
+      }
+    },
+    "Přihrávky": {
+      "weight": 1.0,
+      "Základní přihrávky aktivita": {
+        "weight": 0.7,
+        "Received passes per 90": 1.0,
+        "Passes per 90": 1.0,
+        "Forward passes per 90": 1.0,
+        "Back passes per 90": 1.0,
+        "Lateral passes per 90": 1.0
+      },
+      "Základní přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate passes": 1.0,
+        "Accurate forward passes": 1.0,
+        "Accurate back passes": 1.0,
+        "Accurate lateral passes": 1.0,
+        "Accurate short / medium passes": 1.0,
+        "Accurate long passes": 1.0,
+        "Accurate passes to final third": 1.0,
+        "Effective Passing Index": 1.0
+      },
+      "Nadstavbové přihrávky aktivita": {
+        "weight": 0.4,
+        "Smart passes per 90": 1.0,
+        "Key passes per 90": 1.0,
+        "Through passes per 90": 1.0,
+        "Progressive passes per 90": 1.0,
+        "Shot assists per 90": 1.0
+      },
+      "Nadstavbové přihrávky kvalita": {
+        "weight": 0.8,
+        "Accurate smart passes": 1.0,
+        "Accurate through passes": 1.0,
+        "Accurate progressive passes": 1.0,
+        "Effective Passing Index": 0.9
+      }
+    }
+  },
+  "MC": {
+    "Defenziva": {
+      "weight": 0.9, 
+      "Soubojová intezita na zemi": {
+        "weight": 0.7,
+        "Successful defensive actions per 90": 1.0,
+        "Defensive duels per 90": 1.0,
+        "Shots blocked per 90": 0.2,
+        "Loose ball duels per 90": 1.0
+      },
+      "Soubojová kvalita na zemi": {
+        "weight": 1.0,
+        "Successful defensive actions per 90": 0.9,
+        "PAdj Interceptions": 0.9,
+        "Defensive duels won": 1.0,
+        "Loose ball duels won": 1.0
+      },
+      "Počet soubojů ve vzduchu": {
+        "weight": 0.05,
+        "Aerial duels per 90": 1.0
+      },
+      "Kvalita ve vzduchu": {
+        "weight": 0.05,
+        "Aerial duels won": 1.0
+      },
+      "Pokrytí hřiště": {
+        "weight": 0.7,
+        "PAdj Interceptions": 1.0,
+        "Loose ball duels per 90": 1.0
+      }
+    },
+    "Ofenziva": {
+      "weight": 0.9,
+      "Zakončení": {
+        "weight": 0.6,
+        "Goals per 90": 1.0,
+        "xG per 90": 1.0,
+        "Shots per 90": 1.0,
+        "Shots on target": 1.0,
+        "Goal conversion": 1.0
+      },
+      "Příprava šancí": {
+        "weight": 1.0,
+        "Assists per 90": 1.0,
+        "xA per 90": 1.0,
+        "Shot assists per 90": 1.0,
+        "Second assists per 90": 0.3,
+        "Third assists per 90": 0.3,
+        "Key passes per 90": 1.0
+      }
+    },
+    "Dostat se přes hráče": {
+      "weight": 1.0,
+      "Počet pokusů dostat se přes hráče": {
+        "weight": 1.0,
+        "Dribbles per 90": 1.0,
+        "Offensive duels per 90": 1.0,
+        "Progressive runs per 90": 1.0
+      },
+      "Úspěšnost dostat se přes hráče": {
+        "weight": 1.0,
+        "Successful dribbles": 1.0,
+        "Offensive duels won": 1.0,
+        "Progressive runs per 90": 1.0
+      }
+    },
+    "Přihrávky": {
+      "weight": 1.0,
+      "Základní přihrávky aktivita": {
+        "weight": 0.7,
+        "Received passes per 90": 1.0,
+        "Passes per 90": 1.0,
+        "Forward passes per 90": 1.0,
+        "Back passes per 90": 1.0,
+        "Lateral passes per 90": 1.0
+      },
+      "Základní přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate passes": 1.0,
+        "Accurate forward passes": 1.0,
+        "Accurate back passes": 1.0,
+        "Accurate lateral passes": 1.0,
+        "Accurate short / medium passes": 1.0,
+        "Accurate long passes": 1.0,
+        "Accurate passes to final third": 1.0,
+        "Effective Passing Index": 1.0
+      },
+      "Nadstavbové přihrávky aktivita": {
+        "weight": 0.6,
+        "Smart passes per 90": 1.0,
+        "Key passes per 90": 1.0,
+        "Through passes per 90": 1.0,
+        "Progressive passes per 90": 1.0,
+        "Shot assists per 90": 1.0
+      },
+      "Nadstavbové přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate smart passes": 1.0,
+        "Accurate through passes": 1.0,
+        "Accurate progressive passes": 1.0,
+        "Effective Passing Index": 0.9
+      }
+    }
+  },
+  "AMC": {
+    "Defenziva": {
+      "weight": 0.3,
+      "Soubojová intezita na zemi": {
+        "weight": 0.5,
+        "Successful defensive actions per 90": 1.0,
+        "Defensive duels per 90": 1.0,
+        "Shots blocked per 90": 0.1,
+        "Loose ball duels per 90": 1.0
+      },
+      "Soubojová kvalita na zemi": {
+        "weight": 1.0,
+        "Successful defensive actions per 90": 0.9,
+        "PAdj Interceptions": 0.9,
+        "Defensive duels won": 1.0,
+        "Loose ball duels won": 1.0
+      }
+    },
+    "Ofenziva": {
+      "weight": 1.0,
+      "Zakončení": {
+        "weight": 0.8,
+        "Goals per 90": 1.0,
+        "xG per 90": 1.0,
+        "Shots per 90": 1.0,
+        "Shots on target": 1.0,
+        "Goal conversion": 1.0
+      },
+      "Příprava šancí": {
+        "weight": 1.0,
+        "Assists per 90": 1.0,
+        "xA per 90": 1.0,
+        "Shot assists per 90": 1.0,
+        "Second assists per 90": 0.3,
+        "Third assists per 90": 0.3,
+        "Key passes per 90": 1.0
+      }
+    },
+    "Dostat se přes hráče": {
+      "weight": 1.0,
+      "Počet pokusů dostat se přes hráče": {
+        "weight": 1.0,
+        "Dribbles per 90": 1.0,
+        "Offensive duels per 90": 1.0,
+        "Progressive runs per 90": 1.0
+      },
+      "Úspěšnost dostat se přes hráče": {
+        "weight": 1.0,
+        "Successful dribbles": 1.0,
+        "Offensive duels won": 1.0,
+        "Progressive runs per 90": 1.0
+      }
+    },
+    "Přihrávky": {
+      "weight": 1.0,
+      "Základní přihrávky aktivita": {
+        "weight": 0.7,
+        "Received passes per 90": 1.0,
+        "Passes per 90": 1.0,
+        "Forward passes per 90": 1.0,
+        "Back passes per 90": 1.0,
+        "Lateral passes per 90": 1.0
+      },
+      "Základní přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate passes": 1.0,
+        "Accurate forward passes": 1.0,
+        "Accurate back passes": 1.0,
+        "Accurate lateral passes": 1.0,
+        "Accurate short / medium passes": 1.0,
+        "Accurate long passes": 1.0,
+        "Accurate passes to final third": 1.0,
+        "Effective Passing Index": 1.0
+      },
+      "Nadstavbové přihrávky aktivita": {
+        "weight": 1.0,
+        "Smart passes per 90": 1.0,
+        "Key passes per 90": 1.0,
+        "Through passes per 90": 1.0,
+        "Progressive passes per 90": 1.0,
+        "Shot assists per 90": 1.0
+      },
+      "Nadstavbové přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate smart passes": 1.0,
+        "Accurate through passes": 1.0,
+        "Accurate progressive passes": 1.0,
+        "Effective Passing Index": 0.9
+      }
+    }
+  },
+  "ARML": {
+    "Defenziva": {
+      "weight": 0.3,
+      "Soubojová intezita na zemi": {
+        "weight": 0.5,
+        "Successful defensive actions per 90": 1.0,
+        "Defensive duels per 90": 1.0,
+        "Shots blocked per 90": 0.1,
+        "Loose ball duels per 90": 1.0
+      },
+      "Soubojová kvalita na zemi": {
+        "weight": 1.0,
+        "Successful defensive actions per 90": 0.9,
+        "PAdj Interceptions": 0.9,
+        "Defensive duels won": 1.0,
+        "Loose ball duels won": 1.0
+      }
+    },
+    "Ofenziva": {
+      "weight": 1.0,
+      "Zakončení": {
+        "weight": 1.0,
+        "Goals per 90": 1.0,
+        "xG per 90": 1.0,
+        "Shots per 90": 1.0,
+        "Shots on target": 1.0,
+        "Goal conversion": 1.0,
+        "Touches in box per 90": 1.0
+      },
+      "Příprava šancí": {
+        "weight": 0.6,
+        "Assists per 90": 1.0,
+        "xA per 90": 1.0,
+        "Shot assists per 90": 1.0,
+        "Second assists per 90": 0.1,
+        "Third assists per 90": 0.1,
+        "Key passes per 90": 1.0
+      },
+      "Počet centrů": {
+        "weight": 0.01,
+        "Crosses per 90": 1.0
+      },
+      "Kvalita centrů": {
+        "weight": 0.2,
+        "Accurate crosses": 1.0
+      }
+    },
+    "Dostat se přes hráče": {
+      "weight": 1.0,
+      "Počet pokusů dostat se přes hráče": {
+        "weight": 1.0,
+        "Dribbles per 90": 1.0,
+        "Offensive duels per 90": 1.0,
+        "Progressive runs per 90": 1.0
+      },
+      "Úspěšnost dostat se přes hráče": {
+        "weight": 1.0,
+        "Successful dribbles": 1.0,
+        "Offensive duels won": 1.0,
+        "Progressive runs per 90": 1.0
+      }
+    },
+    "Přihrávky": {
+      "weight": 0.8,
+      "Základní přihrávky aktivita": {
+        "weight": 0.7,
+        "Received passes per 90": 1.0,
+        "Passes per 90": 1.0,
+        "Forward passes per 90": 1.0,
+        "Back passes per 90": 1.0,
+        "Lateral passes per 90": 1.0
+      },
+      "Základní přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate passes": 1.0,
+        "Accurate forward passes": 1.0,
+        "Accurate back passes": 1.0,
+        "Accurate lateral passes": 1.0,
+        "Accurate short / medium passes": 1.0,
+        "Accurate long passes": 1.0,
+        "Accurate passes to final third": 1.0,
+        "Effective Passing Index": 1.0
+      },
+      "Nadstavbové přihrávky aktivita": {
+        "weight": 0.8,
+        "Smart passes per 90": 1.0,
+        "Key passes per 90": 1.0,
+        "Through passes per 90": 1.0,
+        "Progressive passes per 90": 1.0,
+        "Shot assists per 90": 1.0
+      },
+      "Nadstavbové přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate smart passes": 1.0,
+        "Accurate through passes": 1.0,
+        "Accurate progressive passes": 1.0,
+        "Effective Passing Index": 0.9
+      }
+    }
+  },
+  "FC": {
+    "Defenziva": {
+      "weight": 0.1,
+      "Soubojová intezita na zemi": {
+        "weight": 0.5,
+        "Successful defensive actions per 90": 1.0,
+        "Defensive duels per 90": 1.0,
+        "Shots blocked per 90": 0.05,
+        "Loose ball duels per 90": 1.0
+      },
+      "Soubojová kvalita na zemi": {
+        "weight": 1.0,
+        "Successful defensive actions per 90": 0.9,
+        "PAdj Interceptions": 0.9,
+        "Defensive duels won": 1.0,
+        "Loose ball duels won": 1.0
+      }
+    },
+    "Ofenziva": {
+      "weight": 1.0,
+      "Zakončení": {
+        "weight": 1.0,
+        "Goals per 90": 1.0,
+        "xG per 90": 1.0,
+        "Shots per 90": 1.0,
+        "Shots on target": 1.0,
+        "Goal conversion": 1.0
+      },
+      "Dostávání se do gólových šancí": {
+        "weight": 1.0,
+        "xG per 90": 1.0,
+        "Touches in box per 90": 0.3
+      },
+      "Příprava šancí": {
+        "weight": 0.2,
+        "Assists per 90": 1.0,
+        "xA per 90": 1.0,
+        "Shot assists per 90": 1.0,
+        "Second assists per 90": 0.1,
+        "Third assists per 90": 0.1,
+        "Key passes per 90": 1.0
+      },
+      "Počet soubojů ve vzduchu": {
+        "weight": 0.1,
+        "Aerial duels per 90": 1.0
+      },
+      "Kvalita ve vzduchu": {
+        "weight": 0.3,
+        "Aerial duels won": 1.0
+      }
+    },
+    "Dostat se přes hráče": {
+      "weight": 0.5,
+      "Počet pokusů dostat se přes hráče": {
+        "weight": 1.0,
+        "Dribbles per 90": 1.0,
+        "Offensive duels per 90": 1.0,
+        "Progressive runs per 90": 1.0
+      },
+      "Úspěšnost dostat se přes hráče": {
+        "weight": 1.0,
+        "Successful dribbles": 1.0,
+        "Offensive duels won": 1.0,
+        "Progressive runs per 90": 1.0
+      }
+    },
+    "Přihrávky": {
+      "weight": 1.0,
+      "Základní přihrávky aktivita": {
+        "weight": 0.7,
+        "Received passes per 90": 1.0,
+        "Passes per 90": 1.0,
+        "Forward passes per 90": 1.0,
+        "Back passes per 90": 1.0,
+        "Lateral passes per 90": 1.0
+      },
+      "Základní přihrávky kvalita": {
+        "weight": 1.0,
+        "Accurate passes": 1.0,
+        "Accurate forward passes": 1.0,
+        "Accurate back passes": 1.0,
+        "Accurate lateral passes": 1.0,
+        "Accurate short / medium passes": 1.0,
+        "Accurate long passes": 1.0,
+        "Accurate passes to final third": 1.0,
+        "Effective Passing Index": 1.0
+      },
+      "Nadstavbové přihrávky aktivita": {
+        "weight": 0.3,
+        "Smart passes per 90": 1.0,
+        "Key passes per 90": 1.0,
+        "Through passes per 90": 1.0,
+        "Progressive passes per 90": 1.0,
+        "Shot assists per 90": 1.0
+      },
+      "Nadstavbové přihrávky kvalita": {
+        "weight": 0.5,
+        "Accurate smart passes": 1.0,
+        "Accurate through passes": 1.0,
+        "Accurate progressive passes": 1.0,
+        "Effective Passing Index": 0.9
+      }
+    }
+  },
+  "GK": {
+    "Chytání": {
+      "weight": 1.0,
+      "Permanence": {
+        "weight": 0.1,
+        "Shots against per 90": 1.0
+      },
+      "Zneškodnění střel": {
+        "weight": 1.0,
+        "Save rate": 1.0
+      }
+    },
+    "Hra nohou": {
+      "weight": 1.0,
+      "Aktivita v rozehrávce": {
+        "weight": 0.8,
+        "Back passes received as GK per 90": 1.0,
+        "Passes per 90": 1.0
+      },
+      "Celková kvalita rozehrávky": {
+        "weight": 1.0,
+        "Accurate passes": 1.0
+      },
+      "Kvalita krátkých přihrávek nakrátko": {
+        "weight": 0.8,
+        "Accurate short / medium passes": 1.0
+      },
+      "Kvalita dlouhých přihrávek": {
+        "weight": 0.2,
+        "Accurate long passes": 1.0
+      }
+    },
+    "Opouštění čáry": {
+      "weight": 0.4,
+      "Výběhy pro vysoké míče": {
+        "weight": 1.0,
+        "Exits per 90": 1.0
+      },
+      "Zachycení míče za obranou": {
+        "weight": 1.0,
+        "PAdj Interceptions": 1.0
+      }
+    },
+    "Opouštění čáry - Druhá instance (PRO KONTROLU)": {
+      "weight": 0.05,
+      "Výběhy pro vysoké míče": {
+        "weight": 1.0,
+        "Exits per 90": 1.0
+      },
+      "Zachycení míče za obranou": {
+        "weight": 1.0,
+        "PAdj Interceptions": 1.0
+      }
+    }
+  }
+}
