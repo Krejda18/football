@@ -17,9 +17,9 @@ from core_logic import (
 )
 
 # --- Konfigurace ---
-DATA_DIR = Path("/Data")
-AVG_DATA_DIR = Path("/AVG - hodnoty")
-LOGIC_JSON = Path("metric_logic.json")
+DATA_DIR = Path("./Data")
+AVG_DATA_DIR = Path("./AVG - hodnoty")
+LOGIC_JSON = Path("./metric_logic.json")
 TOP_CLUBS = ["Slavia Praha", "Sparta Praha", "Viktoria Plzeň"]
 COL_POS = "Converted Position"
 MIN_MINUTES = 700
