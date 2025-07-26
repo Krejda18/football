@@ -24,10 +24,10 @@ TOP_CLUBS = ["Slavia Praha", "Sparta Praha", "Viktoria Plzeň"]
 LOGO_DIR = Path("./logos")
 COL_POS = "Converted Position"
 MIN_MINUTES = 700
-SERVICE_ACCOUNT_JSON = "./service-account-key.json"
-PROJECT_ID = "performance-445519"
+SERVICE_ACCOUNT_JSON = "./inside-data-story-8d1e704bcb82.json"
+PROJECT_ID = "inside-data-story"
 LOCATION = "us-central1"
-MODEL_NAME = "gemini-1.5-pro"
+MODEL_NAME = "gemini-2.5-pro"
 
 # --- Cachované funkce ---
 @st.cache_data
@@ -49,14 +49,34 @@ def get_logic_definition() -> dict:
 
 @st.cache_resource
 def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
+    """
+    Inicializuje model Gemini.
+    Pokusí se načíst klíč ze Streamlit Secrets (pro nasazení na cloudu).
+    Pokud selže, pokusí se načíst klíč z lokálního souboru (pro lokální vývoj).
+    """
+    creds = None
     try:
-        creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_JSON)
+        # Pokus č. 1: Načtení ze Streamlit Secrets (pro Cloud)
+        creds_dict = st.secrets["gcp_service_account"]
+        creds = service_account.Credentials.from_service_account_info(creds_dict)
+        print("--- ÚSPĚCH: Gemini inicializován ze Streamlit Secrets. ---")
+    except Exception:
+        # Pokus č. 2: Načtení z lokálního souboru (pro lokální vývoj)
+        print(f"--- Secrets nenalezeny, pokouším se načíst lokální soubor: {SERVICE_ACCOUNT_JSON} ---")
+        try:
+            creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_JSON)
+            print("--- ÚSPĚCH: Gemini inicializován z lokálního souboru. ---")
+        except Exception as e:
+            st.warning(f"Nepodařilo se inicializovat Gemini. Klíč nenalezen ani v Secrets, ani lokálně. Chyba: {e}")
+            return None, False
+
+    # Společná inicializace Vertex AI po úspěšném načtení klíče
+    try:
         vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=creds)
         model = GenerativeModel(MODEL_NAME)
-        print("--- GEMINI MODEL ÚSPĚŠNĚ INICIALIZOVÁN ---")
         return model, True
     except Exception as e:
-        st.warning(f"Nepodařilo se inicializovat Gemini AI: {e}")
+        st.warning(f"Podařilo se načíst klíč, ale selhala inicializace Vertex AI: {e}")
         return None, False
 
 @st.cache_data
