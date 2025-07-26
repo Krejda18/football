@@ -177,8 +177,9 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
         'Clean sheets', 'Conceded goals', 'Conceded goals per 90', 'Exits per 90',
         'Prevented goals', 'Prevented goals per 90', 'Save rate',
         'Shots against', 'Shots against per 90', 'xG against', 'xG against per 90',
-        'Back passes received as GK per 90'
+        'Back passes received as GK per 90','Aerial duels per 90.1' 
     ]
+    
     common_metrics = p_avg.index.intersection(lg_avg.index)
     metrics_to_display = [m for m in common_metrics if m not in GK_METRICS_TO_EXCLUDE]
     rows = []
@@ -188,14 +189,23 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
         rows.append({"Metric": m, "Hráč": p_avg.get(m), "Liga Ø": lg_avg.get(m), "TOP Kluby Ø": tp_avg.get(m, pd.NA), "vs. League": val_lg, "vs. TOP 3": val_tp})
     all_metrics_tbl = pd.DataFrame(rows)
     
-    analysis_text = "AI analýza nebyla vygenerována." # ... kód Gemini ...
+    analysis_text = "AI analýza není dostupná."
+    if gemini_available and gemini_model:
+        try:
+            prompt = build_prompt(player_name, [main_position], score_lg, score_tp, all_metrics_tbl)
+            msg = Content(role="user", parts=[Part.from_text(prompt)])
+            config = GenerationConfig(max_output_tokens=4096, temperature=0.5, top_k=30)
+            response = gemini_model.generate_content([msg], generation_config=config)
+            analysis_text = response.text
+        except Exception as e:
+            analysis_text = f"Došlo k chybě při generování AI analýzy: {e}"
 
     player_row = player_rows.iloc[0]
     player_club = player_row.get("Team", "N/A")
     logo_path = LOGO_DIR / f"{player_club}.png"
     if not logo_path.is_file(): logo_path = None
 
-    # --- ZMĚNA ZDE: Odstranění logiky pro logo ---
+
     full_header_block = f"""
     # {player_name}
     ### 🧾 Základní informace
@@ -205,7 +215,7 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
     **Výška:** {int(player_row.get('Height', 0))} cm<br>
     **Minuty:** {int(player_row.get('Minutes played', 0))}
     """
-    # --- KONEC ZMĚNY ---
+
 
     return {
         "full_header_block": full_header_block,
