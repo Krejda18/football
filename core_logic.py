@@ -109,28 +109,45 @@ def breakdown_scores(rats: pd.Series, position: str, logic_data: dict) -> tuple[
             sec_rows.append({"Section": sec_name.strip(), "Score": sec_score / sec_weight})
     return pd.DataFrame(sec_rows), pd.DataFrame(sub_rows)
 
-def build_prompt(player: str, positions: list, score_lg: float, score_tp: float, df_all_formatted: pd.DataFrame) -> str:
-    """Sestaví textový prompt pro Gemini AI."""
-    return f"""Jsi špičkový fotbalový analytik specializující se na hodnocení hráčů pro účely skautingu a přestupů.
-Tvým úkolem je vytvořit hloubkovou textovou analýzu výkonu hráče {player} (pozice: {', '.join(positions)}).
+def build_prompt(player: str, positions: list, sec_tbl: pd.DataFrame, sub_tbl: pd.DataFrame, all_metrics_tbl: pd.DataFrame) -> str:
+    """Sestaví vylepšený, komplexní a vyvážený textový prompt pro Gemini AI."""
 
-Celkové hodnocení hráče bylo provedeno interně na základě komplexního porovnání s průměrem ligy a TOP 3 týmů.
-
-1.  Celkové vážené skóre:
-    -   Vs. Liga: {score_lg:.1f} %
-    -   Vs. TOP 3: {score_tp:.1f} %
-
-2.  Porovnání metrik:
-{df_all_formatted.to_string(index=False)}
-
-NEZMIŇUJ číselné hodnoty metrik, pouze kvalitativně popiš výkon hráče. Zaměř se na implicitní vlastnosti (např. čtení hry, pracovitost) a přínos pro nový tým.
-
-Struktura výstupu:
-- Shrnutí
-- Rozbor výkonu
-- Implicitní vlastnosti
-- Potenciál pro tým
-- Doporučení
+    # Převedeme tabulky na přehledný textový formát pro prompt
+    sec_tbl_str = sec_tbl[['Section', 'vs. League', 'vs. TOP 3']].to_string(index=False, float_format="%.0f")
+    sub_tbl_str = sub_tbl[['Section', 'Subsection', 'vs. League', 'vs. TOP 3']].to_string(index=False, float_format="%.0f")
+    all_metrics_str = all_metrics_tbl[['Metric', 'Hráč', 'Liga Ø', 'vs. League', 'vs. TOP 3']].to_string(index=False)
 
 
+    return f"""Jsi špičkový, kritický fotbalový analytik specializující se na objektivní hodnocení hráčů.
+Tvým úkolem je vytvořit hloubkovou, vyváženou textovou analýzu výkonu hráče {player} (pozice: {', '.join(positions)}).
+
+Tvá analýza MUSÍ vycházet ze VŠECH poskytnutých datových sad a propojovat je:
+1. Agregované hodnocení v hlavních oblastech (Sekce)
+2. Detailnější hodnocení v dílčích dovednostech (Podsekce)
+3. Hodnoty jednotlivých metrik
+
+--- DATA PRO ANALÝZU ---
+
+1. HODNOCENÍ V SEKCIÍCH (100 = průměr):
+{sec_tbl_str}
+
+2. HODNOCENÍ V PODSEKCÍCH (100 = průměr):
+{sub_tbl_str}
+
+3. DETAILNÍ METRIKY HRÁČE A SROVNÁVACÍ PRŮMĚRY:
+{all_metrics_str}
+
+--- DŮLEŽITÉ POKYNY ---
+- **Syntéza, ne jen popis:** Začni od obecného (hodnocení v sekcích) a vysvětli ho pomocí konkrétních podsekcí a detailních metrik.
+- **Vyváženost:** Aktivně hledej a zmiň jak **silné stránky** (hodnoty nad 100), tak **slabiny** (hodnoty pod 100). Analýza musí být objektivní.
+- **Kvalitativní popis:** NEZMIŇUJ explicitní číselné hodnoty z tabulek. Popisuj výkon kvalitativně (např. "výrazně nadprůměrný", "zaostává", "průměrný").
+- **Porovnání s TOP 3:** Při hodnocení **vždy porovnávej výkon hráče jak s průměrem celé ligy, tak s průměrem TOP 3 klubů.** Srovnání s TOP 3 je klíčové pro posouzení jeho potenciálu pro přestup do špičkového týmu. Zhodnoť, zda hráč v klíčových dovednostech dosahuje, nebo naopak zaostává za úrovní TOP 3.
+- **Implicitní vlastnosti:** Na základě dat odvoď vlastnosti jako čtení hry, pracovitost, efektivita pod tlakem atd.
+
+--- POŽADOVANÁ STRUKTURA VÝSTUPU ---
+- **Celkové shrnutí a profil hráče:** Vyvážený pohled na jeho styl.
+- **Klíčové silné stránky:** 2-3 nejdůležitější přednosti podložené srovnáním s ligou i TOP 3.
+- **Oblasti pro zlepšení / Slabiny:** 2-3 největší slabiny, zejména ve srovnání s úrovní TOP 3.
+- **Taktické využití a potenciál pro tým:** Jak by mohl být pro tým přínosem.
+- **Závěrečné doporučení:** Stručné shrnutí s ohledem na jeho potenciál pro TOP kluby.
 """
