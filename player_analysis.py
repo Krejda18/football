@@ -78,6 +78,18 @@ def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
         st.warning(f"Podařilo se načíst klíč, ale selhala inicializace Vertex AI: {e}")
         return None, False
 
+@st.cache_data
+def load_all_player_data() -> pd.DataFrame:
+    all_player_dfs = []
+    for file_path in sorted(Path(DATA_DIR).glob("*.xlsx")):
+        df = load_and_process_file(file_path)
+        df['League'] = file_path.stem
+        all_player_dfs.append(df)
+    if not all_player_dfs:
+        return pd.DataFrame()
+    combined_df = pd.concat(all_player_dfs, ignore_index=True)
+    return combined_df[combined_df["Minutes played"] >= MIN_MINUTES]
+
 
 def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame) -> Dict[str, Any]:
     gemini_model, gemini_available = initialize_gemini()
