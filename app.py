@@ -25,7 +25,8 @@ with right_col:
     st.image("logo.png", width=500) # Zde můžete mít jakékoliv logo aplikace
 
 st.sidebar.title("Navigace")
-app_mode = st.sidebar.radio("Zvolte pohled:", ["Detail hráče", "Srovnání hráčů", "AI Skaut", "Hráč vs. Hráč"])
+#app_mode = st.sidebar.radio("Zvolte pohled:", ["Detail hráče", "Srovnání hráčů", "AI Skaut", "Hráč vs. Hráč"])
+app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče")
 
 
 # --- ZMĚNA ZDE: Finální kód pro zúžení postranního panelu ---
