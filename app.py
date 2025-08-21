@@ -5,12 +5,48 @@ from pathlib import Path
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 import numpy as np
 from player_analysis import (
-    load_and_process_file, analyze_player, load_all_player_data, calculate_ratings_for_all_players,
-    AVG_DATA_DIR, MIN_MINUTES
+    load_and_process_file, analyze_player, load_all_player_data, 
+    calculate_all_player_metrics_and_ratings, run_ai_scout, 
+    get_custom_comparison, get_player_comparison_data,
+    AVG_DATA_DIR, MIN_MINUTES, COL_POS
 )
 
 # --- Cesty ---
 DATA_DIR = "./Data"
+
+# --- Hlavní APLIKACE s navigací ---
+st.set_page_config(page_title="Skautingový report", page_icon="logo.png", layout="wide")
+
+# --- ZMĚNA ZDE: Vytvoření společné hlavičky ---
+# Tento kód se nyní provede vždy, bez ohledu na vybranou stránku
+left_col, right_col = st.columns([4,  1])
+
+with right_col:
+    st.image("logo.png", width=500) # Zde můžete mít jakékoliv logo aplikace
+
+st.sidebar.title("Navigace")
+app_mode = st.sidebar.radio("Zvolte pohled:", ["Detail hráče", "Srovnání hráčů", "AI Skaut", "Hráč vs. Hráč"])
+
+
+# --- ZMĚNA ZDE: Finální kód pro zúžení postranního panelu ---
+st.markdown(
+    """
+    <style>
+    /* Cílí na sidebar, když je rozbalený */
+    [data-testid="stSidebar"][aria-expanded="true"] {
+        min-width: 200px;
+        max-width: 200px;
+    }
+    /* Cílí na sidebar, když je sbalený */
+    [data-testid="stSidebar"][aria-expanded="false"] {
+        min-width: 220px;
+        max-width: 220px;
+        margin-left: -220px; /* Musí odpovídat šířce */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # --- Pomocné funkce a styly ---
 def rating_text_color(val):
@@ -42,35 +78,37 @@ def process_dataframe_for_display(df: pd.DataFrame) -> pd.DataFrame:
 table_style_detail_view = [{'selector': 'th, td', 'props': [('text-align', 'center'), ('vertical-align', 'middle')]}, {'selector': 'th', 'props': [('font-weight', 'bold')]}, {'selector': 'th:first-child, td:first-child', 'props': [('text-align', 'left'), ('font-weight', 'bold')]}]
 table_style_detail_view_sub = [{'selector': 'th, td', 'props': [('text-align', 'center'), ('vertical-align', 'middle')]}, {'selector': 'th', 'props': [('font-weight', 'bold')]}, {'selector': 'th:nth-child(1), td:nth-child(1)', 'props': [('text-align', 'left'), ('font-weight', 'bold')]}, {'selector': 'th:nth-child(2), td:nth-child(2)', 'props': [('text-align', 'left')]}]
 
-# --- Funkce pro jednotlivé stránky ---
 def page_single_player_view():
-    st.markdown("<h1 style='text-align: center;'>📊 Skautingový report hráče</h1>", unsafe_allow_html=True)
+    st.markdown("---")
+    
     league_files = {file.stem: file for file in sorted(Path(DATA_DIR).glob("*.xlsx"))}
     avg_files = {file.stem: file for file in sorted(Path(AVG_DATA_DIR).glob("*.xlsx"))}
     if not league_files or not avg_files:
-        st.error("Chybí datové soubory v adresářích 'Data' nebo 'AVG - hodnoty'.")
+        st.error("Chybí datové soubory v adresářích 'data' nebo 'avg_data'.")
         return
+        
     all_avg_dfs = [load_and_process_file(file) for file in avg_files.values()]
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
     
-    # --- ZMĚNA ZDE: Rozložení výběrových menu ---
-    col1, col2, col3 = st.columns([1, 1.5, 1])
+
+    col1, col2 = st.columns(2)
+    with col1:
+        # Při změně soutěže se také vymaže analýza
+        selected_league_name = st.selectbox("Vyber soutěž", options=league_files.keys())
+    
+    player_df = load_and_process_file(league_files[selected_league_name])
+    player_df_filtered = player_df[player_df["Minutes played"] >= MIN_MINUTES]
+    players_list = sorted(player_df_filtered["Player"].dropna().unique())
+    
     with col2:
-        sub_col1, sub_col2 = st.columns(2)
-        with sub_col1:
-            selected_league_name = st.selectbox("Vyber soutěž", options=league_files.keys())
-        
-        player_df = load_and_process_file(league_files[selected_league_name])
-        player_df_filtered = player_df[player_df["Minutes played"] >= MIN_MINUTES]
-        players_list = sorted(player_df_filtered["Player"].dropna().unique())
-        
-        with sub_col2:
-            selected_player = st.selectbox("Vyber hráče", options=players_list)
+        # Při změně hráče se také vymaže analýza
+        selected_player = st.selectbox("Vyber hráče", options=players_list)
 
     if selected_player and avg_df_filtered is not None:
         result = analyze_player(selected_player, player_df_filtered, avg_df_filtered)
         
+
         st.markdown(result["full_header_block"], unsafe_allow_html=True)
 
         # Zbytek stránky pokračuje beze změny
@@ -81,9 +119,11 @@ def page_single_player_view():
         col1_rating, col2_rating = st.columns(2)
         with col1_rating: st.markdown(f"<div style='font-size:29px; text-align:center;'>Vs. Liga<br><span style='color:{rating_text_color(score_lg_num)};'><b>{score_lg_num:.0f} %</b></span></div>", unsafe_allow_html=True)
         with col2_rating: st.markdown(f"<div style='font-size:29px; text-align:center;'>Vs. TOP Kluby<br><span style='color:{rating_text_color(score_tp_num)};'><b>{score_tp_num:.0f} %</b></span></div>", unsafe_allow_html=True)
+        
         def format_percent(x):
             if pd.api.types.is_number(x) and not pd.isna(x): return f"{x:.0f}"
             return ""
+        
         def format_value(x):
             if pd.api.types.is_number(x) and not pd.isna(x):
                 if abs(x) < 10 and x != 0: return f"{x:.2f}"
@@ -91,20 +131,63 @@ def page_single_player_view():
                 return f"{x:.0f}"
             return ""
         numeric_cols = ["vs. League", "vs. TOP 3"]
+        
+        # --- SEKCE VLASTNÍHO SROVNÁNÍ ---
+        st.markdown("---")
+        st.markdown("<h3 style='text-align: center;'>🆚 Vlastní srovnání</h3>", unsafe_allow_html=True)
+        
+        all_positions = sorted(avg_df_filtered[COL_POS].dropna().unique().tolist())
+        
+        selected_positions = st.multiselect(
+            "Vyberte jednu nebo více pozic pro srovnání:",
+            options=all_positions
+        )
+
+        if selected_positions:
+            player_series = player_df_filtered[player_df_filtered['Player'] == selected_player].mean(numeric_only=True)
+            main_position = player_df_filtered[player_df_filtered['Player'] == selected_player][COL_POS].iloc[0]
+            with st.spinner("Počítám vlastní srovnání..."):
+                custom_result = get_custom_comparison(player_series, main_position, selected_positions, avg_df_filtered)
+
+            if "error" in custom_result:
+                st.error(custom_result["error"])
+            else:
+                st.markdown(f"<h4 style='text-align: center;'>Rating vs. Vlastní výběr ({', '.join(selected_positions)})</h4>", unsafe_allow_html=True)
+                score_custom = custom_result.get("score", 0)
+                st.markdown(f"<div style='font-size:29px; text-align:center; color:{rating_text_color(score_custom)};'><b>{score_custom:.0f} %</b></div>", unsafe_allow_html=True)
+                
+                st.markdown("<h5 style='text-align: center;'>Sekce</h5>", unsafe_allow_html=True)
+                # --- ZMĚNA ZDE: Aplikace formátu pouze na číselný sloupec ---
+                styler_sec_custom = custom_result["sec_tbl"].style.format("{:.0f}", subset=["vs. Vlastní výběr"]).applymap(background_cells).set_table_styles(table_style_detail_view).hide(axis="index")
+                render_styled_df(styler_sec_custom)
+                
+                st.markdown("<h5 style='text-align: center;'>Podsekce</h5>", unsafe_allow_html=True)
+                sub_tbl_custom_processed = process_dataframe_for_display(custom_result["sub_tbl"])
+                # --- ZMĚNA ZDE: Aplikace formátu pouze na číselný sloupec ---
+                styler_sub_custom = sub_tbl_custom_processed.style.format("{:.0f}", subset=["vs. Vlastní výběr"]).applymap(background_cells).set_table_styles(table_style_detail_view_sub).hide(axis="index")
+                render_styled_df(styler_sub_custom)
+
+            # --- KONEC SEKCE VLASTNÍHO SROVNÁNÍ ---
+        
         st.markdown("### 🔍 Sekce")
         styler_sec = result["sec_tbl"].style.format(format_percent, na_rep="", subset=numeric_cols).applymap(background_cells, subset=numeric_cols).set_table_styles(table_style_detail_view).hide(axis="index")
         render_styled_df(styler_sec)
+
         st.markdown("### 🛠️ Podsekce")
         sub_tbl_processed = process_dataframe_for_display(result["sub_tbl"])
+
         styler_sub = sub_tbl_processed.style.format(format_percent, na_rep="", subset=numeric_cols).applymap(background_cells, subset=numeric_cols).set_table_styles(table_style_detail_view_sub).hide(axis="index")
         render_styled_df(styler_sub)
+
         st.markdown("### 📋 Všechny metriky")
         styler_all = result["all_metrics"].style.format(format_value, subset=["Hráč", "Liga Ø", "TOP Kluby Ø"], na_rep="").format(format_percent, subset=numeric_cols, na_rep="").applymap(background_cells, subset=numeric_cols).set_table_styles(table_style_detail_view).hide(axis="index")
         render_styled_df(styler_all)
+        
         if st.checkbox("🧠 Zobrazit AI analýzu"):
             if result["gemini_available"]: st.markdown(result["analysis"])
             else: st.warning(result["analysis"])
 
+    
 def page_player_comparison():
 
     st.markdown("<h1 style='text-align: center;'>Srovnání hráčů napříč soutěžemi</h1>", unsafe_allow_html=True)
@@ -114,7 +197,7 @@ def page_player_comparison():
     all_avg_dfs = [load_and_process_file(file) for file in avg_files]
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
-    ratings_df = calculate_ratings_for_all_players(all_players_df, avg_df_filtered)
+    ratings_df = calculate_all_player_metrics_and_ratings(all_players_df, avg_df_filtered)
     if ratings_df.empty:
         st.warning("Nepodařilo se vypočítat ratingy pro žádné hráče.")
         return
@@ -160,9 +243,6 @@ def page_player_comparison():
         format_func=format_market_value
     )
         
-        # Zobrazíme vybraný rozsah v čitelném formátu s oddělovači tisíců
-     
-    
     # Aplikace filtrů (již bez filtru pro ligu)
     filtered_df = ratings_df
     if selected_pos != "Všechny pozice":
@@ -262,11 +342,12 @@ def page_player_comparison():
     center_aligned_style = {'textAlign': 'center'}
 
     gb.configure_column("Player", headerName="Hráč", width=200, filter='agSetColumnFilter')
-    gb.configure_column("Team", headerName="Tým", width=150)
+    gb.configure_column("Team", headerName="Tým", width=150,filter='agSetColumnFilter')
     gb.configure_column("League", headerName="Soutěž", cellStyle=center_aligned_style, width=150, filter='agSetColumnFilter')
     gb.configure_column("Position", headerName="Pozice", cellStyle=center_aligned_style, width=100,filter=False)
     gb.configure_column("Age", headerName="Věk", cellStyle=center_aligned_style, width=80,filter=False)
     gb.configure_column("Height", headerName="Výška", cellStyle=center_aligned_style, width=80,filter=False)
+    gb.configure_column("Minutes", headerName="Minutes", cellStyle=center_aligned_style, width=80,filter=False)
     
     gb.configure_column(
         "Market value", 
@@ -295,21 +376,133 @@ def page_player_comparison():
         custom_css=custom_css
     )
 
-# --- Hlavní APLIKACE s navigací ---
-st.set_page_config(page_title="Skautingový report", page_icon="/Users/krejda/Documents/Python/Aplikace/player_app/logo.png", layout="wide")
+def page_ai_scout():
+    st.header("🤖 AI Skaut")
+    st.info("Zadejte do textového pole níže vaše požadavky na hráče a AI prohledá databázi a navrhne nejlepší kandidáty.")
 
-# --- ZMĚNA ZDE: Vytvoření společné hlavičky ---
-# Tento kód se nyní provede vždy, bez ohledu na vybranou stránku
-left_col, right_col = st.columns([4,  1])
+    default_prompt = "Hledám mladého (pod 23 let) ofenzivního záložníka (AMC) s vysokým ratingem proti TOP klubům. Měl by být kreativní a mít potenciál pro další růst."
+    
+    user_needs = st.text_area("Popište ideálního hráče:", height=150, value=default_prompt)
 
-with right_col:
-    st.image("logo.png", width=500) # Zde můžete mít jakékoliv logo aplikace
+    if st.button("🔍 Najít hráče"):
+        with st.spinner("AI analyzuje data a hledá nejlepší shody... Může to chvíli trvat."):
+            recommendation = run_ai_scout(user_needs)
+            st.markdown("---")
+            st.subheader("Doporučení od AI Skauta:")
+            st.markdown(recommendation)
 
-st.sidebar.title("Navigace")
-app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče"])
+# V souboru app.py
+
+def page_player_vs_player():
+    st.markdown("---")
+    st.header("👥 Hráč vs. Hráč")
+
+    all_players_df = load_all_player_data()
+    avg_files = list(Path(AVG_DATA_DIR).glob("*.xlsx"))
+    all_avg_dfs = [load_and_process_file(file) for file in avg_files]
+    combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
+    avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
+
+    all_positions = sorted(all_players_df[COL_POS].dropna().unique().tolist())
+    selected_pos = st.selectbox("1. Vyberte pozici pro srovnání:", options=all_positions)
+
+    if selected_pos:
+        players_on_pos = sorted(all_players_df[all_players_df[COL_POS] == selected_pos]['Player'].unique().tolist())
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            player1 = st.selectbox("2. Vyberte prvního hráče:", options=[None] + players_on_pos, index=0)
+        with col2:
+            player2 = st.selectbox("3. Vyberte druhého hráče:", options=[None] + players_on_pos, index=0)
+            
+        if st.button("🔍 Porovnat hráče"):
+            if player1 and player2 and player1 != player2:
+                with st.spinner(f"Porovnávám hráče {player1} a {player2}..."):
+                    comparison_data = get_player_comparison_data(player1, player2, all_players_df, avg_df_filtered)
+
+                res1 = comparison_data["result1"]
+                res2 = comparison_data["result2"]
+                p1_short = comparison_data["p1_name_short"]
+                p2_short = comparison_data["p2_name_short"]
+
+                st.markdown("---")
+                # Hlavičky
+                col1_h, col2_h = st.columns(2)
+                with col1_h: st.markdown(res1["full_header_block"], unsafe_allow_html=True)
+                with col2_h: st.markdown(res2["full_header_block"], unsafe_allow_html=True)
+
+                # Ratingy
+                st.markdown("### 📈 Vážený rating")
+                col1_r, col2_r = st.columns(2)
+                with col1_r:
+                    st.markdown(f"<div style='font-size:29px; text-align:center;'>Vs. Liga<br><span style='color:{rating_text_color(res1['score_lg'])};'><b>{res1['score_lg']:.0f} %</b></span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:29px; text-align:center;'>Vs. TOP Kluby<br><span style='color:{rating_text_color(res1['score_tp'])};'><b>{res1['score_tp']:.0f} %</b></span></div>", unsafe_allow_html=True)
+                with col2_r:
+                    st.markdown(f"<div style='font-size:29px; text-align:center;'>Vs. Liga<br><span style='color:{rating_text_color(res2['score_lg'])};'><b>{res2['score_lg']:.0f} %</b></span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:29px; text-align:center;'>Vs. TOP Kluby<br><span style='color:{rating_text_color(res2['score_tp'])};'><b>{res2['score_tp']:.0f} %</b></span></div>", unsafe_allow_html=True)
+
+                # --- OPRAVENÁ FUNKCE PRO ZVÝRAZNĚNÍ ---
+                def style_winner(df, p1_name, p2_name, is_ratings=True):
+                    styled_df = pd.DataFrame('', index=df.index, columns=df.columns)
+                    highlight = 'background-color: lightgreen'
+                    
+                    p1_cols = [c for c in df.columns if p1_name in c]
+                    p2_cols = [c for c in df.columns if p2_name in c]
+                    
+                    if not (p1_cols and p2_cols): return styled_df
+
+                    # Pro tabulky sekcí a podsekcí, které mají více sloupců na hráče
+                    if is_ratings:
+                        for p1_col, p2_col in zip(p1_cols, p2_cols):
+                            numeric_p1 = pd.to_numeric(df[p1_col], errors='coerce')
+                            numeric_p2 = pd.to_numeric(df[p2_col], errors='coerce')
+                            styled_df[p1_col] = np.where(numeric_p1 > numeric_p2, highlight, '')
+                            styled_df[p2_col] = np.where(numeric_p2 > numeric_p1, highlight, '')
+                    # Pro tabulku metrik, kde má každý hráč jen jeden sloupec
+                    else:
+                        p1_col, p2_col = p1_cols[0], p2_cols[0]
+                        numeric_p1 = pd.to_numeric(df[p1_col], errors='coerce')
+                        numeric_p2 = pd.to_numeric(df[p2_col], errors='coerce')
+                        styled_df[p1_col] = np.where(numeric_p1 > numeric_p2, highlight, '')
+                        styled_df[p2_col] = np.where(numeric_p2 > numeric_p1, highlight, '')
+                        
+                    return styled_df
+
+                # Srovnávací tabulky
+                st.markdown("---")
+                st.markdown("<h3 style='text-align: center;'>🆚 Srovnání v sekcích</h3>", unsafe_allow_html=True)
+                sec_df = comparison_data["comparison_sec"]
+                numeric_cols_sec = sec_df.select_dtypes(include=np.number).columns
+                styler_sec = sec_df.style.format("{:.0f}", subset=numeric_cols_sec, na_rep="–").apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=True, axis=None).set_table_styles(table_style_detail_view).hide(axis="index")
+                render_styled_df(styler_sec)
+                
+                st.markdown("<h3 style='text-align: center;'>🆚 Srovnání v podsekcích</h3>", unsafe_allow_html=True)
+                sub_df = comparison_data["comparison_sub"]
+                sub_processed = process_dataframe_for_display(sub_df)
+                numeric_cols_sub = sub_df.select_dtypes(include=np.number).columns
+                styler_sub = sub_processed.style.format("{:.0f}", subset=numeric_cols_sub, na_rep="–").apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=True, axis=None).set_table_styles(table_style_detail_view_sub).hide(axis="index")
+                render_styled_df(styler_sub)
+                
+                st.markdown("<h3 style='text-align: center;'>🆚 Srovnání metrik</h3>", unsafe_allow_html=True)
+                all_df = comparison_data["comparison_all"]
+                numeric_cols_all = all_df.select_dtypes(include=np.number).columns
+                styler_all = all_df.style.format("{:.1f}", subset=numeric_cols_all, na_rep="–").apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=False, axis=None).set_table_styles(table_style_detail_view).hide(axis="index")
+                render_styled_df(styler_all)
+                
+            elif not player1 or not player2:
+                st.warning("Prosím, vyberte oba hráče pro srovnání.")
+            else:
+                st.warning("Prosím, vyberte dva různé hráče.")
+
+
 
 # Zobrazení vybrané stránky
 if app_mode == "Detail hráče":
     page_single_player_view()
 elif app_mode == "Srovnání hráčů":
     page_player_comparison()
+elif app_mode == "AI Skaut":
+    page_ai_scout()
+elif app_mode == "Hráč vs. Hráč":
+    page_player_vs_player()
+

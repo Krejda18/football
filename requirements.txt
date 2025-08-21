@@ -4,6 +4,3 @@ streamlit-aggrid
 numpy
 google-cloud-aiplatform
 openpyxl
-reportlab
-matplotlib
-streamlit-authenticator

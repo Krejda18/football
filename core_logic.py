@@ -3,11 +3,13 @@ import pandas as pd
 from pathlib import Path
 
 def get_positions_for_avg_filter(main_position: str) -> list[str]:
+    
     """
     Vrátí seznam pozic pro filtrování průměrných dat.
     Pro krajní obránce (DR/DL) a krajní záložníky (AMR/AML) vrací obě pozice,
     aby se průměr počítal ze širší skupiny srovnatelných hráčů.
     """
+    
     if main_position in ["DR", "DL"]:
         return ["DR", "DL"]
     if main_position in ["AMR", "AML"]:
@@ -107,54 +109,105 @@ def breakdown_scores(rats: pd.Series, position: str, logic_data: dict) -> tuple[
                 sub_rows.append({"Section": sec_name.strip(), "Subsection": sub_name.strip(), "Score": sc})
         if sec_weight > 0:
             sec_rows.append({"Section": sec_name.strip(), "Score": sec_score / sec_weight})
-    return pd.DataFrame(sec_rows), pd.DataFrame(sub_rows)
+    return pd.DataFrame(sec_rows), pd.DataFrame(sub_rows) 
 
-def build_prompt(player: str, positions: list, score_lg: float, score_tp: float, df_all_formatted: pd.DataFrame) -> str:
-    """
-    Sestaví vylepšený, komplexní a vyvážený textový prompt pro Gemini AI,
-    který se vyhýbá superlativům a používá původní sadu vstupních parametrů.
-    """
-    # Převedeme hlavní datovou tabulku na přehledný textový formát pro prompt
-    data_str = df_all_formatted.to_string(index=False)
+
+####### AI Analýza
+
+
+def build_prompt(player: str, positions: list, sec_tbl: pd.DataFrame, sub_tbl: pd.DataFrame, all_metrics_tbl: pd.DataFrame) -> str:
+    """Sestaví vylepšený, komplexní a vyvážený textový prompt pro Gemini AI."""
+
+    # Převedeme tabulky na přehledný textový formát pro prompt
+    sec_tbl_str = sec_tbl[['Section', 'vs. League', 'vs. TOP 3']].to_string(index=False, float_format="%.0f")
+    sub_tbl_str = sub_tbl[['Section', 'Subsection', 'vs. League', 'vs. TOP 3']].to_string(index=False, float_format="%.0f")
+    all_metrics_str = all_metrics_tbl[['Metric', 'Hráč', 'Liga Ø', 'vs. League', 'vs. TOP 3']].to_string(index=False)
+
 
     return f"""Jsi špičkový, kritický fotbalový analytik specializující se na objektivní hodnocení hráčů.
 Tvým úkolem je vytvořit hloubkovou, vyváženou textovou analýzu výkonu hráče {player} (pozice: {', '.join(positions)}).
 
-Tvá analýza MUSÍ vycházet ze VŠECH poskytnutých dat a propojovat je. NEZMIŇUJ číselné hodnoty metrik, pouze kvalitativně popiš výkon hráče.
+Tvá analýza MUSÍ vycházet ze VŠECH poskytnutých datových sad a propojovat je:
+1. Agregované hodnocení v hlavních oblastech (Sekce)
+2. Detailnější hodnocení v dílčích dovednostech (Podsekce)
+3. Hodnoty jednotlivých metrik
 
 --- DATA PRO ANALÝZU ---
 
-1.  **Celkové vážené skóre (kontext pro tebe, nezmiňuj v analýze):**
-    -   Srovnání s průměrem ligy: {score_lg:.1f} %
-    -   Srovnání s průměrem TOP 3 týmů: {score_tp:.1f} %
+1. HODNOCENÍ V SEKCIÍCH (100 = průměr):
+{sec_tbl_str}
 
-2.  **DETAILNÍ METRIKY A HODNOCENÍ V JEDNOTLIVÝCH OBLASTECH:**
-    (Hodnoty "vs. League" a "vs. TOP 3" jsou indexované, kde 100 = průměr)
-{data_str}
+2. HODNOCENÍ V PODSEKCÍCH (100 = průměr):
+{sub_tbl_str}
 
---- DŮLEŽITÉ POKYNY PRO ZPRACOVÁNÍ ---
+3. DETAILNÍ METRIKY HRÁČE A SROVNÁVACÍ PRŮMĚRY:
+{all_metrics_str}
 
-- **Syntéza, ne jen popis:** Propojuj data. Pokud například vidíš vysoké hodnocení v sekci "Bránění", vysvětli ho pomocí konkrétních metrik z tabulky, jako jsou "Úspěšnost obranných soubojů" nebo "Získané míče".
-- **Vyváženost:** Aktivně hledej a zmiň jak **silné stránky** (hodnoty výrazně nad 100), tak **slabiny** (hodnoty výrazně pod 100). Analýza musí být objektivní.
-- **Kvalitativní popis:** NEZMIŇUJ explicitní číselné hodnoty z tabulek (např. "jeho hodnota je 125"). Místo toho popisuj výkon kvalitativně (např. "jeho schopnost vyhrávat souboje je výrazně nadprůměrná", "v rozehrávce zaostává", "jeho presink je na průměrné úrovni").
-- **Profesionální a neutrální tón:** Vyhni se přehnaně pozitivním superlativům jako 'vynikající', 'skvělý', 'fenomenální' nebo 'perfektní'. Udržuj jazyk věcný a analytický.
+--- DŮLEŽITÉ POKYNY ---
+- **Syntéza, ne jen popis:** Začni od obecného (hodnocení v sekcích) a vysvětli ho pomocí konkrétních podsekcí a detailních metrik.
+- **Vyváženost:** Aktivně hledej a zmiň jak **silné stránky** (hodnoty nad 100), tak **slabiny** (hodnoty pod 100). Analýza musí být objektivní.
+- **Kvalitativní popis:** NEZMIŇUJ explicitní číselné hodnoty z tabulek. Popisuj výkon kvalitativně (např. "výrazně nadprůměrný", "zaostává", "průměrný").
 - **Porovnání s TOP 3:** Při hodnocení **vždy porovnávej výkon hráče jak s průměrem celé ligy, tak s průměrem TOP 3 klubů.** Srovnání s TOP 3 je klíčové pro posouzení jeho potenciálu pro přestup do špičkového týmu. Zhodnoť, zda hráč v klíčových dovednostech dosahuje, nebo naopak zaostává za úrovní TOP 3.
-- **Odvození implicitních vlastností:** Na základě dat odvoď vlastnosti, které nejsou přímo v tabulce, jako je čtení hry, pracovitost, efektivita pod tlakem, taktická disciplína atd.
+- **Implicitní vlastnosti:** Na základě dat odvoď vlastnosti jako čtení hry, pracovitost, efektivita pod tlakem atd.
 
 --- POŽADOVANÁ STRUKTURA VÝSTUPU ---
+- **Celkové shrnutí a profil hráče:** Vyvážený pohled na jeho styl.
+- **Klíčové silné stránky:** 2-3 nejdůležitější přednosti podložené srovnáním s ligou i TOP 3.
+- **Oblasti pro zlepšení / Slabiny:** 2-3 největší slabiny, zejména ve srovnání s úrovní TOP 3.
+- **Taktické využití a potenciál pro tým:** Jak by mohl být pro tým přínosem.
+- **Závěrečné doporučení:** Stručné shrnutí s ohledem na jeho potenciál pro TOP kluby.
+"""
 
-**1. Celkové shrnutí a profil hráče:**
-Stručný odstavec, který představí hráče a jeho herní styl na základě syntézy všech dat.
+#AI Skaut
 
-**2. Klíčové silné stránky:**
-Odrážky se 2-3 nejdůležitějšími přednostmi. Každou podlož konkrétním pozorováním z dat a srovnáním s ligou i TOP 3.
+def build_ai_scout_prompt(needs_description: str, players_data_string: str) -> str:
+    """Sestaví finální, expertní prompt pro AI Skauta, který hledá hráče podle volného textu."""
+    
+    return f"""Jsi elitní fotbalový skaut s dokonalou schopností analyzovat data a porozumět potřebám klubu. Tvým úkolem je na základě textového zadání najít nejvhodnější hráče.
 
-**3. Oblasti pro zlepšení / Slabiny:**
-Odrážky se 2-3 největšími slabinami. Uveď, v čem a proč zaostává, zejména ve srovnání s úrovní TOP 3 týmů.
+**POŽADAVKY SPORTOVNÍHO ŘEDITELE (NAPSÁNO VOLNÝM TEXTEM):**
+---
+"{needs_description}"
+---
 
-**4. Taktické využití a potenciál pro tým:**
-Jak by mohl být pro svůj budoucí tým přínosem? Na jakou pozici a do jakého herního systému by se hodil?
+**SEZNAM DOSTUPNÝCH HRÁČŮ S JEJICH KLÍČOVÝMI DATY A HODNOCENÍM:**
+(Hodnocení je vždy ve formátu "Název: Rating vs Liga / Rating vs TOP Kluby". 100 = průměr.)
+---
+{players_data_string}
+---
 
-**5. Závěrečné doporučení:**
-Stručné shrnutí (1-2 věty) s ohledem na jeho potenciál pro přestup do špičkového klubu.
+**TVŮJ ÚKOL - POSTUPUJ PŘESNĚ PODLE TĚCHTO KROKŮ:**
+
+**1. DEŠIFRUJ POŽADAVKY:**
+Pečlivě si přečti textové zadání. Identifikuj všechny klíčové vlastnosti a kritéria, které ředitel hledá (např. "kreativní", "dominantní v hlavičkových soubojích", "mladý s potenciálem", "dobrý v pressingu", "levný", "ze slovenské ligy").
+
+**2. PROPOJ POŽADAVKY S DATY (NEJDŮLEŽITĚJŠÍ KROK):**
+Pro každou požadovanou vlastnost si v hlavě urči, které **sekce a podsekce** v datech jsou nejdůležitější. Jednej jako skutečný expert. Zde je návod, jak uvažovat:
+
+* **FYZICKÉ A ZÁKLADNÍ ÚDAJE:**
+    * "Mladý", "perspektivní", "do 23 let" -> Hledej nízký `Věk`.
+    * "Vysoký", "dobrá postava" -> Hledej vysokou `Výška`.
+    * "Levonohý", "pravonohý" -> Hledej konkrétní hodnotu v `Noha`.
+    * "Levný", "dostupný", "nízká cena" -> Hledej nízkou `Tržní hodnota`.
+    * "Ze slovenské ligy" -> Hledej pouze hráče, kde `Soutěž` obsahuje "Slovakia".
+
+* **DEFENZIVNÍ VLASTNOSTI:**
+    * "Dominantní v hlavičkových soubojích" -> Hledej vysoké hodnocení v podsekci `Kvalita ve vzduchu`.
+    * "Dobrý v odebírání míče", "skvělý v soubojích 1 na 1" -> Hledej vysoké hodnocení v podsekci `Soubojová kvalita na zemi`.
+    * "Pracovitý", "dobrý v pressingu", "aktivní bez míče" -> Hledej vysoké hodnocení v podsekci `Soubojová intezita na zemi`.
+
+* **OFENZIVNÍ VLASTNOSTI A KREATIVITA:**
+    * "Kreativní", "má finální přihrávku", "tvoří šance" -> Hledej vysoké hodnocení v podsekcích `Příprava šancí` a `Nadstavbové přihrávky kvalita`.
+    * "Skvělý střelec", "gólový" -> Hledej vysoké hodnocení v podsekci `Zakončení`.
+    * "Dobrý driblér", "umí obejít hráče" -> Hledej vysoké hodnocení v sekci `Dostat se přes hráče` a podsekci `Úspěšnost dostat se přes hráče`.
+    * "Kvalitní rozehrávka", "přesné přihrávky" -> Hledej vysoké hodnocení v sekci `Přihrávky` a podsekci `Základní přihrávky kvalita`.
+
+**3. ANALYZUJ A VYBER:**
+Projdi seznam hráčů a na základě svého expertního úsudku najdi **5 až 10 nejlepších kandidátů**, kteří se nejvíce blíží popsanému ideálnímu profilu. Nehledej jen přesnou shodu, ale hráče, kteří nejlépe splňují kombinaci nejdůležitějších požadavků.
+
+**4. ZDŮVODNI SVŮJ VÝBĚR:**
+Pro každého doporučeného hráče napiš krátké (2-3 věty) a výstižné zdůvodnění. Vždy se odkaž na **konkrétní sekce nebo podsekce**, ve kterých hráč vyniká a které odpovídají požadavkům. Příklad: "Doporučuji hráče X, protože dle dat exceluje v podsekci Kvalita ve vzduchu (125/120), což přesně odpovídá našemu požadavku na dominantního hlavičkáře."
+
+**FORMÁT VÝSTUPU:**
+Začni krátkým shrnutím, jak jsi pochopil zadání. Poté vypiš doporučené hráče s odůvodněním ve formátu odrážek.
 """
