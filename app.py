@@ -26,7 +26,7 @@ with right_col:
 
 st.sidebar.title("Navigace")
 #app_mode = st.sidebar.radio("Zvolte pohled:", ["Detail hráče", "Srovnání hráčů", "AI Skaut", "Hráč vs. Hráč"])
-app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče")
+app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče"])
 
 
 # --- ZMĚNA ZDE: Finální kód pro zúžení postranního panelu ---
