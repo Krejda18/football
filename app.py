@@ -29,7 +29,7 @@ app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hr
 st.markdown(
     """
     <style>
-    [data-testid="stSidebar"][aria-expanded="true"] { min-width: 200px; max-width: 200px; }
+    [data-testid="stSidebar"][aria-expanded="true"] { min-width: 220px; max-width: 220px; }
     [data-testid="stSidebar"][aria-expanded="false"] { min-width: 220px; max-width: 220px; margin-left: -220px; }
     </style>
     """,
