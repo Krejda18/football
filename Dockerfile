@@ -23,5 +23,5 @@ COPY . .
 # Tento příkaz spustí vaši aplikaci pomocí produkčního serveru Gunicorn.
 # Předpokládá, že v souboru 'app.py' máte proměnnou 'app' (např. app = Flask(__name__)).
 # Gunicorn se spustí na portu, který mu přidělí Cloud Run ($PORT).
-CMD ["streamlit", "run", "app.py", "--server.port", "8080", "--server.enableCORS", "false"]
+CMD streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.enableCORS=false
 
