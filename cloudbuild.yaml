@@ -1,0 +1,28 @@
+steps:
+# Krok 1: Sestavení kontejneru podle Dockerfile
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'europe-west1-docker.pkg.dev/$PROJECT_ID/playeranalysis/${REPO_NAME}:${COMMIT_SHA}', '.']
+
+# Krok 2: Nahrání hotového kontejneru do registru
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'europe-west1-docker.pkg.dev/$PROJECT_ID/playeranalysis/${REPO_NAME}:${COMMIT_SHA}']
+
+# Krok 3: Nasazení do Cloud Run se všemi našimi nastaveními
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+    - 'run'
+    - 'deploy'
+    - 'playeranalysis' # <-- Název vaší Cloud Run služby
+    - '--image=europe-west1-docker.pkg.dev/$PROJECT_ID/playeranalysis/${REPO_NAME}:${COMMIT_SHA}'
+    - '--region=europe-west1'
+    - '--cpu=2'
+    - '--memory=4Gi'
+    - '--timeout=600s'
+    - '--min-instances=1' # Volitelné: Udržuje 1 instanci stále aktivní pro rychlou odezvu
+    - '--update-secrets=/app/inside-data-story-af484f6c4b69.json=gemini-api-key:latest'
+    - '--allow-unauthenticated'
+
+# Uložení odkazu na hotový obraz
+images:
+- 'europe-west1-docker.pkg.dev/$PROJECT_ID/playeranalysis/${REPO_NAME}:${COMMIT_SHA}'
