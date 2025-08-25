@@ -46,15 +46,6 @@ EXCLUDE_FROM_ALL_METRICS = {
     "Age"
 }
 
-def _load_streamlit_secret(key: str):
-    """Bezpečný pokus o načtení st.secrets[key] (na Cloud Run nevyvolá chybu)."""
-    try:
-        # Přístup k st.secrets může vyhodit RuntimeError, pokud žádné nejsou
-        secrets_map = st.secrets  # už tohle může hodit výjimku
-        return secrets_map.get(key)
-    except Exception:
-        return None
-
 @st.cache_resource
 def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
     """
@@ -63,7 +54,7 @@ def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
     creds = None
     try:
         # POKUS Č. 1: PRO CLOUD RUN (nejlepší metoda)
-        # Hledá proměnnou prostředí s názvem 'GCP_SERVICE_ACCOUNT_JSON'
+        # Hledá proměnnou prostředí s názvem 'GCP_SA_JSON'
         env_secret = os.environ.get(ENV_SECRET_NAME)
         if env_secret:
             creds_dict = json.loads(env_secret)
