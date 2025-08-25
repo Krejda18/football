@@ -28,7 +28,7 @@ MIN_MINUTES = 500
 
 # --- Konfigurace pro Google Cloud & Gemini ---
 PROJECT_ID = "inside-data-story"
-LOCATION = "us-central1"
+LOCATION = "europe-west1"
 MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
 
 # Cesty a názvy pro tajné klíče v různých prostředích
