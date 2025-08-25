@@ -32,7 +32,7 @@ LOCATION = "europe-west1"
 MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
 
 # Cesty a názvy pro tajné klíče v různých prostředích
-ENV_SECRET_NAME = "GCP_SA_JSON"
+ENV_SECRET_NAME = "GCP_SERVICE_ACCOUNT_JSON"
 STREAMLIT_SECRET_NAME = "gcp_service_account"
 LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
 
@@ -54,7 +54,7 @@ def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
     creds = None
     try:
         # POKUS Č. 1: PRO CLOUD RUN (nejlepší metoda)
-        # Hledá proměnnou prostředí s názvem 'GCP_SA_JSON'
+        # Hledá proměnnou prostředí s názvem 'GCP_SERVICE_ACCOUNT_JSON'
         env_secret = os.environ.get(ENV_SECRET_NAME)
         if env_secret:
             creds_dict = json.loads(env_secret)
