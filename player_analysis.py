@@ -33,7 +33,6 @@ MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
 
 # Cesty a názvy pro tajné klíče v různých prostředích
 ENV_SECRET_NAME = "GCP_SA_JSON"
-CLOUD_RUN_SECRET_PATH = "/app/inside-data-story-af484f6c4b69.json"
 STREAMLIT_SECRET_NAME = "gcp_service_account"
 LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
 
