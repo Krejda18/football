@@ -1,26 +1,32 @@
 steps:
-# Krok 1: Sestavení kontejneru
+# Build
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'europe-west1-docker.pkg.dev/$PROJECT_ID/playeranalysis/${REPO_NAME}:${COMMIT_SHA}', '.']
+  args: ['build', '-t', 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}', '.']
 
-# Krok 2: Nahrání kontejneru do registru
+# Push
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'europe-west1-docker.pkg.dev/$PROJECT_ID/playeranalysis/${REPO_NAME}:${COMMIT_SHA}']
+  args: ['push', 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}']
 
-# Krok 3: Nasazení do Cloud Run se všemi nastaveními
+# Update + Deploy to Cloud Run (service: football)
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: gcloud
+  entrypoint: bash
   args:
-    - 'run'
-    - 'deploy'
-    - 'playeranalysis'
-    - '--image=europe-west1-docker.pkg.dev/$PROJECT_ID/playeranalysis/${REPO_NAME}:${COMMIT_SHA}'
-    - '--region=europe-west1'
-    - '--cpu=2'
-    - '--memory=4Gi'
-    - '--timeout=600s'
-    - '--update-secrets=GCP_SA_JSON=gemini-api-key:latest'
-    - '--allow-unauthenticated'
+    - -c
+    - |
+      # 1) Pro jistotu zruš všechny mounty (pokud tam historicky zůstaly)
+      gcloud run services update football \
+        --region=europe-west1 \
+        --clear-mounts || true
+
+      # 2) Deploy nové revize do SPRÁVNÉ služby: football
+      gcloud run deploy football \
+        --image=europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA} \
+        --region=europe-west1 \
+        --cpu=2 \
+        --memory=4Gi \
+        --timeout=600s \
+        --update-secrets=GCP_SA_JSON=gemini-api-key:latest \
+        --allow-unauthenticated
 
 images:
-- 'europe-west1-docker.pkg.dev/$PROJECT_ID/playeranalysis/${REPO_NAME}:${COMMIT_SHA}'
+- 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}'
