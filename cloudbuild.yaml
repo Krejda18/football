@@ -19,7 +19,7 @@ steps:
     - '--cpu=2'
     - '--memory=4Gi'
     - '--timeout=600s'
-    - '--update-secrets=GCP_SERVICE_ACCOUNT_JSON. =gemini-api-key:latest'
+    - '--update-secrets=GCP_SA_JSON=gemini-api-key:latest'
     - '--allow-unauthenticated'
 
 images:
