@@ -32,7 +32,7 @@ LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
 
 # Cesty a názvy pro tajné klíče v různých prostředích
-CLOUD_RUN_SECRET_PATH = "/secrets/gemini_key.json"
+CLOUD_RUN_SECRET_PATH = "/app/inside-data-story-af484f6c4b69.json"
 STREAMLIT_SECRET_NAME = "gcp_service_account"
 LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
 
