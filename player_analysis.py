@@ -47,6 +47,76 @@ EXCLUDE_FROM_ALL_METRICS = {
     "Age"
 }
 
+def _load_streamlit_secret(key: str):
+    """Bezpečný pokus o načtení st.secrets[key] (na Cloud Run nevyvolá chybu)."""
+    try:
+        # Přístup k st.secrets může vyhodit RuntimeError, pokud žádné nejsou
+        secrets_map = st.secrets  # už tohle může hodit výjimku
+        return secrets_map.get(key)
+    except Exception:
+        return None
+
+def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
+    """
+    Robustní načítání přihlašovacích údajů v pořadí:
+      1) Cloud Run → ENV (GCP_SA_JSON)
+      2) Cloud Run → soubor (fallback, pokud by byl secret mountnutý)
+      3) Lokálně → JSON soubor
+      4) Streamlit Cloud → st.secrets (bezpečně)
+    """
+    creds = None
+
+    # 1) ENV na Cloud Run
+    env_val = os.environ.get(ENV_SECRET_NAME, "").strip()
+    if env_val:
+        try:
+            creds = service_account.Credentials.from_service_account_info(json.loads(env_val))
+            print("--- INFO: Klíč inicializován z ENV (Cloud Run). ---")
+        except Exception as e:
+            st.error(f"Chyba při parsování ENV {ENV_SECRET_NAME}: {e}")
+            return None, False
+
+    # 2) Mountnutý soubor (pokud bys někdy použil --mount)
+    elif os.path.exists(CLOUD_RUN_SECRET_PATH):
+        try:
+            creds = service_account.Credentials.from_service_account_file(CLOUD_RUN_SECRET_PATH)
+            print("--- INFO: Klíč inicializován ze souboru (Cloud Run fallback). ---")
+        except Exception as e:
+            st.error(f"Chyba při čtení souboru s klíčem: {e}")
+            return None, False
+
+    # 3) Lokální JSON soubor
+    elif os.path.exists(LOCAL_SECRET_PATH):
+        try:
+            creds = service_account.Credentials.from_service_account_file(LOCAL_SECRET_PATH)
+            print("--- INFO: Klíč inicializován z lokálního souboru. ---")
+        except Exception as e:
+            st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
+            return None, False
+
+    # 4) Streamlit Cloud – bezpečně sáhnout do st.secrets
+    else:
+        secret_info = _load_streamlit_secret(STREAMLIT_SECRET_NAME)
+        if secret_info:
+            try:
+                creds = service_account.Credentials.from_service_account_info(secret_info)
+                print("--- INFO: Klíč inicializován ze Streamlit secrets. ---")
+            except Exception as e:
+                st.error(f"Chyba při čtení Streamlit secrets: {e}")
+                return None, False
+        else:
+            st.warning("Klíč pro Gemini nenalezen: chybí ENV, soubor, lokální JSON i Streamlit secrets.")
+            return None, False
+
+    # Inicializace Vertex AI
+    try:
+        vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=creds)
+        model = GenerativeModel(MODEL_NAME)
+        return model, True
+    except Exception as e:
+        st.warning(f"Podařilo se načíst klíč, ale selhala inicializace Vertex AI: {e}")
+        return None, False
+
 
 # --- Cachované funkce ---
 def load_and_process_file(file_path: Path) -> pd.DataFrame:
@@ -64,54 +134,6 @@ def load_and_process_file(file_path: Path) -> pd.DataFrame:
 def get_logic_definition() -> dict:
     with open(LOGIC_JSON, "r", encoding="utf-8") as f:
         return json.load(f)
-
-def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
-    """
-    Inicializuje model Gemini s robustním načítáním klíče pro různá prostředí:
-      1) Cloud Run → ENV proměnná GCP_SA_JSON
-      2) Cloud Run → soubor (pokud by byl secret mountnutý)
-      3) Lokálně → JSON soubor v projektu
-      4) Streamlit Cloud → st.secrets
-    """
-    creds = None
-    try:
-        # 1) Cloud Run: JSON v ENV proměnné
-        env_val = os.environ.get(ENV_SECRET_NAME, "").strip()
-        if env_val:
-            creds = service_account.Credentials.from_service_account_info(json.loads(env_val))
-            print("--- INFO: Klíč inicializován z ENV (Cloud Run). ---")
-
-        # 2) Cloud Run: mountnutý soubor
-        elif os.path.exists(CLOUD_RUN_SECRET_PATH):
-            creds = service_account.Credentials.from_service_account_file(CLOUD_RUN_SECRET_PATH)
-            print("--- INFO: Klíč inicializován ze souboru (Cloud Run). ---")
-
-        # 3) Lokální prostředí: JSON soubor
-        elif os.path.exists(LOCAL_SECRET_PATH):
-            creds = service_account.Credentials.from_service_account_file(LOCAL_SECRET_PATH)
-            print("--- INFO: Klíč inicializován z lokálního souboru. ---")
-
-        # 4) Streamlit Cloud: secrets
-        elif STREAMLIT_SECRET_NAME in st.secrets:
-            creds = service_account.Credentials.from_service_account_info(st.secrets[STREAMLIT_SECRET_NAME])
-            print("--- INFO: Klíč inicializován pro Streamlit Cloud. ---")
-
-        else:
-            st.warning("Klíč pro Gemini nenalezen na žádné očekávané cestě.")
-            return None, False
-
-    except Exception as e:
-        st.error(f"Došlo k chybě při načítání přihlašovacích údajů: {e}")
-        return None, False
-
-    # Společná inicializace Vertex AI
-    try:
-        vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=creds)
-        model = GenerativeModel(MODEL_NAME)
-        return model, True
-    except Exception as e:
-        st.warning(f"Podařilo se načíst klíč, ale selhala inicializace Vertex AI: {e}")
-        return None, False
 
 @st.cache_data
 def load_all_player_data() -> pd.DataFrame:
