@@ -7,7 +7,7 @@ import numpy as np
 from player_analysis import (
     load_and_process_file, analyze_player, load_all_player_data, 
     calculate_all_player_metrics_and_ratings, run_ai_scout, 
-    get_custom_comparison, get_player_comparison_data,
+    get_custom_comparison, get_player_comparison_data, analyze_head_to_head,
     AVG_DATA_DIR, MIN_MINUTES, COL_POS
 )
 
@@ -29,7 +29,7 @@ app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hr
 st.markdown(
     """
     <style>
-    [data-testid="stSidebar"][aria-expanded="true"] { min-width: 220px; max-width: 220px; }
+    [data-testid="stSidebar"][aria-expanded="true"] { min-width: 200px; max-width: 200px; }
     [data-testid="stSidebar"][aria-expanded="false"] { min-width: 220px; max-width: 220px; margin-left: -220px; }
     </style>
     """,
@@ -488,129 +488,169 @@ def page_player_vs_player():
     st.markdown("---")
     st.header("👥 Hráč vs. Hráč")
 
+    # --- data ---
     all_players_df = load_all_player_data()
     avg_files = list(Path(AVG_DATA_DIR).glob("*.xlsx"))
     all_avg_dfs = [load_and_process_file(file) for file in avg_files]
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
 
+    # --- výběr ---
     all_positions = sorted(all_players_df[COL_POS].dropna().unique().tolist())
     selected_pos = st.selectbox("1. Vyberte pozici pro srovnání:", options=all_positions)
+    if not selected_pos:
+        return
 
-    if selected_pos:
-        players_on_pos = sorted(all_players_df[all_players_df[COL_POS] == selected_pos]['Player'].unique().tolist())
+    players_on_pos = sorted(all_players_df[all_players_df[COL_POS] == selected_pos]['Player'].unique().tolist())
+    col1, col2 = st.columns(2)
+    with col1:
+        player1 = st.selectbox("2. Vyberte prvního hráče:", options=[None] + players_on_pos, index=0, key="h2h_p1")
+    with col2:
+        player2 = st.selectbox("3. Vyberte druhého hráče:", options=[None] + players_on_pos, index=0, key="h2h_p2")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            player1 = st.selectbox("2. Vyberte prvního hráče:", options=[None] + players_on_pos, index=0)
-        with col2:
-            player2 = st.selectbox("3. Vyberte druhého hráče:", options=[None] + players_on_pos, index=0)
+    # --- init session state ---
+    ss = st.session_state
+    ss.setdefault("h2h_compared", False)
+    ss.setdefault("h2h_pair", (None, None))
+    ss.setdefault("h2h_last_comp", None)   # uložené tabulky/hlavičky
+    ss.setdefault("h2h_ai_text", None)     # uložený AI text
 
-        if st.button("🔍 Porovnat hráče"):
-            if player1 and player2 and player1 != player2:
-                with st.spinner(f"Porovnávám hráče {player1} a {player2}..."):
-                    comparison_data = get_player_comparison_data(player1, player2, all_players_df, avg_df_filtered)
+    # --- akce: porovnat ---
+    if st.button("🔍 Porovnat hráče", type="primary"):
+        if not player1 or not player2:
+            st.warning("Prosím, vyberte oba hráče pro srovnání.")
+        elif player1 == player2:
+            st.warning("Prosím, vyberte dva různé hráče.")
+        else:
+            with st.spinner(f"Porovnávám hráče {player1} a {player2}..."):
+                comp = get_player_comparison_data(player1, player2, all_players_df, avg_df_filtered)
 
-                res1 = comparison_data["result1"]
-                res2 = comparison_data["result2"]
-                p1_short = comparison_data["p1_name_short"]
-                p2_short = comparison_data["p2_name_short"]
+            # ulož do state (aby se po rerunu znovu vykreslilo)
+            ss.h2h_compared = True
+            ss.h2h_pair = (player1, player2)
+            ss.h2h_last_comp = comp
+            ss.h2h_ai_text = None  # AI smažeme, protože pár/porovnání je nové
 
-                st.markdown("---")
-                col1_h, col2_h = st.columns(2)
-                with col1_h:
-                    st.markdown(res1["full_header_block"], unsafe_allow_html=True)
-                with col2_h:
-                    st.markdown(res2["full_header_block"], unsafe_allow_html=True)
+    # --- vykreslení výsledků porovnání ze state (přežije rerun) ---
+    if ss.h2h_compared and ss.h2h_last_comp is not None:
+        comp = ss.h2h_last_comp
+        res1, res2 = comp["result1"], comp["result2"]
+        p1_short, p2_short = comp["p1_name_short"], comp["p2_name_short"]
 
-                st.markdown("### 📈 Vážený rating")
-                col1_r, col2_r = st.columns(2)
-                with col1_r:
-                    st.markdown(
-                        f"<div style='font-size:29px; text-align:center;'>Vs. Liga<br><span style='color:{rating_text_color(res1['score_lg'])};'><b>{res1['score_lg']:.0f} %</b></span></div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(
-                        f"<div style='font-size:29px; text-align:center;'>Vs. TOP Kluby<br><span style='color:{rating_text_color(res1['score_tp'])};'><b>{res1['score_tp']:.0f} %</b></span></div>",
-                        unsafe_allow_html=True,
-                    )
-                with col2_r:
-                    st.markdown(
-                        f"<div style='font-size:29px; text-align:center;'>Vs. Liga<br><span style='color:{rating_text_color(res2['score_lg'])};'><b>{res2['score_lg']:.0f} %</b></span></div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(
-                        f"<div style='font-size:29px; text-align:center;'>Vs. TOP Kluby<br><span style='color:{rating_text_color(res2['score_tp'])};'><b>{res2['score_tp']:.0f} %</b></span></div>",
-                        unsafe_allow_html=True,
-                    )
+        st.markdown("---")
+        col1_h, col2_h = st.columns(2)
+        with col1_h:
+            st.markdown(res1["full_header_block"], unsafe_allow_html=True)
+        with col2_h:
+            st.markdown(res2["full_header_block"], unsafe_allow_html=True)
 
-                def style_winner(df, p1_name, p2_name, is_ratings=True):
-                    styled_df = pd.DataFrame('', index=df.index, columns=df.columns)
-                    highlight = 'background-color: lightgreen'
+        st.markdown("### 📈 Vážený rating")
+        col1_r, col2_r = st.columns(2)
+        with col1_r:
+            st.markdown(
+                f"<div style='font-size:29px; text-align:center;'>Vs. Liga<br>"
+                f"<span style='color:{rating_text_color(res1['score_lg'])};'><b>{res1['score_lg']:.0f} %</b></span></div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='font-size:29px; text-align:center;'>Vs. TOP Kluby<br>"
+                f"<span style='color:{rating_text_color(res1['score_tp'])};'><b>{res1['score_tp']:.0f} %</b></span></div>",
+                unsafe_allow_html=True,
+            )
+        with col2_r:
+            st.markdown(
+                f"<div style='font-size:29px; text-align:center;'>Vs. Liga<br>"
+                f"<span style='color:{rating_text_color(res2['score_lg'])};'><b>{res2['score_lg']:.0f} %</b></span></div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='font-size:29px; text-align:center;'>Vs. TOP Kluby<br>"
+                f"<span style='color:{rating_text_color(res2['score_tp'])};'><b>{res2['score_tp']:.0f} %</b></span></div>",
+                unsafe_allow_html=True,
+            )
 
-                    p1_cols = [c for c in df.columns if p1_name in c]
-                    p2_cols = [c for c in df.columns if p2_name in c]
-
-                    if not (p1_cols and p2_cols):
-                        return styled_df
-
-                    if is_ratings:
-                        for p1_col, p2_col in zip(p1_cols, p2_cols):
-                            numeric_p1 = pd.to_numeric(df[p1_col], errors='coerce')
-                            numeric_p2 = pd.to_numeric(df[p2_col], errors='coerce')
-                            styled_df[p1_col] = np.where(numeric_p1 > numeric_p2, highlight, '')
-                            styled_df[p2_col] = np.where(numeric_p2 > numeric_p1, highlight, '')
-                    else:
-                        p1_col, p2_col = p1_cols[0], p2_cols[0]
-                        numeric_p1 = pd.to_numeric(df[p1_col], errors='coerce')
-                        numeric_p2 = pd.to_numeric(df[p2_col], errors='coerce')
-                        styled_df[p1_col] = np.where(numeric_p1 > numeric_p2, highlight, '')
-                        styled_df[p2_col] = np.where(numeric_p2 > numeric_p1, highlight, '')
-
-                    return styled_df
-
-                st.markdown("---")
-                st.markdown("<h3 style='text-align: center;'>🆚 Srovnání v sekcích</h3>", unsafe_allow_html=True)
-                sec_df = comparison_data["comparison_sec"]
-                numeric_cols_sec = sec_df.select_dtypes(include=np.number).columns
-                styler_sec = (
-                    sec_df.style
-                    .format("{:.0f}", subset=numeric_cols_sec, na_rep="–")
-                    .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=True, axis=None)
-                    .set_table_styles(table_style_detail_view)
-                    .hide(axis="index")
-                )
-                render_styled_df(styler_sec)
-
-                st.markdown("<h3 style='text-align: center;'>🆚 Srovnání v podsekcích</h3>", unsafe_allow_html=True)
-                sub_df = comparison_data["comparison_sub"]
-                sub_processed = process_dataframe_for_display(sub_df)
-                numeric_cols_sub = sub_df.select_dtypes(include=np.number).columns
-                styler_sub = (
-                    sub_processed.style
-                    .format("{:.0f}", subset=numeric_cols_sub, na_rep="–")
-                    .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=True, axis=None)
-                    .set_table_styles(table_style_detail_view_sub)
-                    .hide(axis="index")
-                )
-                render_styled_df(styler_sub)
-
-                st.markdown("<h3 style='text-align: center;'>🆚 Srovnání metrik</h3>", unsafe_allow_html=True)
-                all_df = comparison_data["comparison_all"]
-                numeric_cols_all = all_df.select_dtypes(include=np.number).columns
-                styler_all = (
-                    all_df.style
-                    .format("{:.1f}", subset=numeric_cols_all, na_rep="–")
-                    .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=False, axis=None)
-                    .set_table_styles(table_style_detail_view)
-                    .hide(axis="index")
-                )
-                render_styled_df(styler_all)
-
-            elif not player1 or not player2:
-                st.warning("Prosím, vyberte oba hráče pro srovnání.")
+        # --- funkce pro "vítěze" zůstává (překryje pozadí, je-li potřeba) ---
+        def style_winner(df, p1_name, p2_name, is_ratings=True):
+            styled_df = pd.DataFrame('', index=df.index, columns=df.columns)
+            highlight = 'background-color: lightgreen'
+            p1_cols = [c for c in df.columns if p1_name in c]
+            p2_cols = [c for c in df.columns if p2_name in c]
+            if not (p1_cols and p2_cols):
+                return styled_df
+            if is_ratings:
+                for p1_col, p2_col in zip(p1_cols, p2_cols):
+                    numeric_p1 = pd.to_numeric(df[p1_col], errors='coerce')
+                    numeric_p2 = pd.to_numeric(df[p2_col], errors='coerce')
+                    styled_df[p1_col] = np.where(numeric_p1 > numeric_p2, highlight, '')
+                    styled_df[p2_col] = np.where(numeric_p2 > numeric_p1, highlight, '')
             else:
-                st.warning("Prosím, vyberte dva různé hráče.")
+                p1_col, p2_col = p1_cols[0], p2_cols[0]
+                numeric_p1 = pd.to_numeric(df[p1_col], errors='coerce')
+                numeric_p2 = pd.to_numeric(df[p2_col], errors='coerce')
+                styled_df[p1_col] = np.where(numeric_p1 > numeric_p2, highlight, '')
+                styled_df[p2_col] = np.where(numeric_p2 > numeric_p1, highlight, '')
+            return styled_df
+
+        # --- SEKCE ---
+        st.markdown("---")
+        st.markdown("<h3 style='text-align: center;'>🆚 Srovnání v sekcích</h3>", unsafe_allow_html=True)
+        sec_df = comp["comparison_sec"]
+        numeric_cols_sec = sec_df.select_dtypes(include=np.number).columns
+        styler_sec = (
+            sec_df.style
+            .format("{:.0f}", subset=numeric_cols_sec, na_rep="–")
+            .applymap(background_cells, subset=numeric_cols_sec)  # <<<<<<<<<< stejné barvy jako všude
+            .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=True, axis=None)
+            .set_table_styles(table_style_detail_view)
+            .hide(axis="index")
+        )
+        render_styled_df(styler_sec)
+
+        # --- PODSEKCE ---
+        st.markdown("<h3 style='text-align: center;'>🆚 Srovnání v podsekcích</h3>", unsafe_allow_html=True)
+        sub_df = comp["comparison_sub"]
+        sub_processed = process_dataframe_for_display(sub_df)
+        numeric_cols_sub = sub_df.select_dtypes(include=np.number).columns
+        styler_sub = (
+            sub_processed.style
+            .format("{:.0f}", subset=numeric_cols_sub, na_rep="–")
+            .applymap(background_cells, subset=numeric_cols_sub)  # <<<<<<<<<< stejné barvy
+            .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=True, axis=None)
+            .set_table_styles(table_style_detail_view_sub)
+            .hide(axis="index")
+        )
+        render_styled_df(styler_sub)
+
+        # --- METRIKY ---
+        st.markdown("<h3 style='text-align: center;'>🆚 Srovnání metrik</h3>", unsafe_allow_html=True)
+        all_df = comp["comparison_all"].copy()
+        # najdeme sloupce obou hráčů
+        metric_num_cols = [c for c in all_df.columns if c in (p1_short, p2_short)]
+        styler_all = (
+            all_df.style
+            .format("{:.1f}", subset=metric_num_cols, na_rep="–")
+            .applymap(background_cells, subset=metric_num_cols)  # <<<<<<<<<< stejné barvy
+            .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=False, axis=None)
+            .set_table_styles(table_style_detail_view)
+            .hide(axis="index")
+        )
+        render_styled_df(styler_all)
+
+        # --- AI H2H (navázané na uložený pár) ---
+        st.markdown("---")
+        st.subheader("🧠 AI H2H analýza")
+
+        same_pair = ss.h2h_pair == (player1, player2)
+        if same_pair:
+            if st.button("Vygenerovat AI porovnání"):
+                with st.spinner("AI tvoří porovnání..."):
+                    ss.h2h_ai_text = analyze_head_to_head(player1, player2, all_players_df, avg_df_filtered)
+
+            if ss.h2h_ai_text:
+                st.markdown(ss.h2h_ai_text, unsafe_allow_html=True)
+        else:
+            st.info("Změnili jste výběr hráčů. Nejdřív klikněte na „Porovnat hráče“, pak spusťte AI porovnání.")
+            
 
 # =============================
 # Router

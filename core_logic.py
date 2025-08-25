@@ -112,7 +112,9 @@ def breakdown_scores(rats: pd.Series, position: str, logic_data: dict) -> tuple[
     return pd.DataFrame(sec_rows), pd.DataFrame(sub_rows) 
 
 
-####### AI Analýza
+# =============================
+# AI Analýza
+# =============================
 
 
 def build_prompt(player: str, positions: list, sec_tbl: pd.DataFrame, sub_tbl: pd.DataFrame, all_metrics_tbl: pd.DataFrame) -> str:
@@ -158,7 +160,9 @@ Tvá analýza MUSÍ vycházet ze VŠECH poskytnutých datových sad a propojovat
 - **Závěrečné doporučení:** Stručné shrnutí s ohledem na jeho potenciál pro TOP kluby.
 """
 
-#AI Skaut
+# =============================
+# AI Skaut
+# =============================
 
 def build_ai_scout_prompt(needs_description: str, players_data_string: str) -> str:
     """Sestaví finální, expertní prompt pro AI Skauta, který hledá hráče podle volného textu."""
@@ -211,3 +215,76 @@ Pro každého doporučeného hráče napiš krátké (2-3 věty) a výstižné z
 **FORMÁT VÝSTUPU:**
 Začni krátkým shrnutím, jak jsi pochopil zadání. Poté vypiš doporučené hráče s odůvodněním ve formátu odrážek.
 """
+
+# =============================
+# AI Head to Head
+# =============================
+
+def build_head_to_head_prompt(
+    p1_name: str,
+    p2_name: str,
+    header1: dict,
+    header2: dict,
+    sec_delta_df: pd.DataFrame,
+    sub_delta_df: pd.DataFrame,
+    top_metric_diffs: pd.DataFrame
+) -> str:
+    def _fmt_header(h: dict) -> str:
+        return (
+            f"- Klub: {h.get('Team','N/A')}\n"
+            f"- Pozice: {h.get('Position','N/A')}\n"
+            f"- Věk: {int(h.get('Age',0))}\n"
+            f"- Výška: {int(h.get('Height',0))} cm\n"
+            f"- Minuty: {int(h.get('Minutes',0))}\n"
+        )
+
+    lines = []
+    lines.append("Porovnej dva hráče a napiš scoutingové H2H posouzení ve 4 částech:")
+    lines.append("1) Shrnutí (2–3 věty) – kdo je aktuálně vhodnější pro top úroveň a proč.")
+    lines.append("2) Taktický fit – v jaké roli/systému by každý hráč exceloval.")
+    lines.append("3) Klíčové rozdíly – uveď 5 největších datových rozdílů (pozitivní i negativní).")
+    lines.append("4) Rizika & doporučení – co může selhat, jaké jsou limity dat.\n")
+
+    lines.append(f"=== Hráč A: {p1_name} ===")
+    lines.append(_fmt_header(header1))
+    lines.append(f"=== Hráč B: {p2_name} ===")
+    lines.append(_fmt_header(header2))
+
+    def _tbl(df: pd.DataFrame, head: str, cols: list[str], limit: int = 20) -> list[str]:
+        out = [head]
+        if df is None or df.empty:
+            out.append("- (žádná srovnatelná data)")
+            return out
+        dfx = df.copy()
+        for c in cols:
+            if c in dfx.columns:
+                dfx[c] = pd.to_numeric(dfx[c], errors='coerce')
+        dfx = dfx.head(limit)
+        for _, r in dfx.iterrows():
+            key = r.get('Section', r.iloc[0])
+            vals = ", ".join([f"{c}={r.get(c)}" for c in cols if c in dfx.columns])
+            out.append(f"- {key}: {vals}")
+        return out
+
+    sec_cols = ["P1 vs. Liga", "P2 vs. Liga", "Δ vs. Liga", "P1 vs. TOP 3", "P2 vs. TOP 3", "Δ vs. TOP 3"]
+    lines += _tbl(sec_delta_df, "\n[SEKCE – rozdíly]", sec_cols, limit=30)
+
+    sub_cols = ["P1 vs. Liga", "P2 vs. Liga", "Δ vs. Liga"]
+    if sub_delta_df is not None and not sub_delta_df.empty and "Δ vs. Liga" in sub_delta_df.columns:
+        sub_sorted = sub_delta_df.assign(abs_delta=sub_delta_df["Δ vs. Liga"].abs()).sort_values("abs_delta", ascending=False).drop(columns=["abs_delta"])
+    else:
+        sub_sorted = sub_delta_df
+    lines += _tbl(sub_sorted, "\n[PODSEKCE – top rozdíly]", sub_cols, limit=25)
+
+    if top_metric_diffs is not None and not top_metric_diffs.empty:
+        lines.append("\n[TOP METRIKY – největší rozdíly (vs. liga)]")
+        for _, r in top_metric_diffs.iterrows():
+            try:
+                lines.append(f"- {r['Metric']}: {p1_name} {float(r['P1 vs. League']):.0f}% vs {p2_name} {float(r['P2 vs. League']):.0f}% (Δ={float(r['DeltaAbs']):.0f} p.b.)")
+            except Exception:
+                continue
+    else:
+        lines.append("\n[TOP METRIKY – žádná data]")
+
+    lines.append("\nPiš stručně, česky, bez superlativů. Zahrň nejistoty (vzorek minut apod.).")
+    return "\n".join(lines)
