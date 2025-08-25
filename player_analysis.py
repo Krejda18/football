@@ -64,7 +64,7 @@ def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
     try:
         # POKUS Č. 1: PRO CLOUD RUN (nejlepší metoda)
         # Hledá proměnnou prostředí s názvem 'GCP_SERVICE_ACCOUNT_JSON'
-        env_secret = os.environ.get('GCP_SERVICE_ACCOUNT_JSON')
+        env_secret = os.environ.get(ENV_SECRET_NAME)
         if env_secret:
             creds_dict = json.loads(env_secret)
             creds = service_account.Credentials.from_service_account_info(creds_dict)
