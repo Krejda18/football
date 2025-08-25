@@ -46,48 +46,63 @@ EXCLUDE_FROM_ALL_METRICS = {
     "Age"
 }
 
-@st.cache_resource
 def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
     """
-    Finální, nejspolehlivější verze, která prioritně čte klíč z proměnné prostředí.
+    Pořadí:
+      Cloud Run (detekce přes K_SERVICE): ENV -> Local  (žádné st.secrets)
+      Jinde: ENV -> Local -> Streamlit secrets
     """
     creds = None
-    try:
-        # POKUS Č. 1: PRO CLOUD RUN (nejlepší metoda)
-        # Hledá proměnnou prostředí s názvem 'GCP_SERVICE_ACCOUNT_JSON'
-        env_secret = os.environ.get(ENV_SECRET_NAME)
-        if env_secret:
-            creds_dict = json.loads(env_secret)
-            creds = service_account.Credentials.from_service_account_info(creds_dict)
-            print("--- INFO: Klíč inicializován z proměnné prostředí (Cloud Run). ---")
+    is_cloud_run = bool(os.environ.get("K_SERVICE"))  # Cloud Run detekce
 
-        # POKUS Č. 2: PRO LOKÁLNÍ VÝVOJ
-        # Hledá lokální soubor
-        elif os.path.exists(LOCAL_SECRET_PATH):
-            creds = service_account.Credentials.from_service_account_file(LOCAL_SECRET_PATH)
-            print("--- INFO: Klíč inicializován z lokálního souboru. ---")
-
-        # POKUS Č. 3: PRO STREAMLIT CLOUD
-        # Hledá v st.secrets
-        elif STREAMLIT_SECRET_NAME in st.secrets:
-            creds = service_account.Credentials.from_service_account_info(st.secrets[STREAMLIT_SECRET_NAME])
-            print("--- INFO: Klíč inicializován pro Streamlit Cloud. ---")
-            
-        else:
-            st.warning("Klíč pro Gemini nenalezen na žádné očekávané cestě.")
+    # 1) ENV (Cloud Run i jinde)
+    env_val = os.environ.get(ENV_SECRET_NAME, "").strip()
+    if env_val:
+        try:
+            creds = service_account.Credentials.from_service_account_info(json.loads(env_val))
+            print("--- INFO: Klíč inicializován z ENV ---")
+        except Exception as e:
+            st.error(f"Chyba při parsování JSON z ENV {ENV_SECRET_NAME}: {e}")
             return None, False
 
-    except Exception as e:
-        st.error(f"Došlo k chybě při načítání přihlašovacích údajů: {e}")
+    # 2) Lokální soubor (fallback pro vývoj, i na Cloud Run pokud bys ho někdy přibalil)
+    elif os.path.exists(LOCAL_SECRET_PATH):
+        try:
+            creds = service_account.Credentials.from_service_account_file(LOCAL_SECRET_PATH)
+            print("--- INFO: Klíč inicializován z lokálního souboru ---")
+        except Exception as e:
+            st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
+            return None, False
+
+    # 3) Streamlit secrets (pouze mimo Cloud Run)
+    elif not is_cloud_run:
+        try:
+            # Přístup obalte try/except – Streamlit bez secrets vyhazuje výjimku
+            _secrets = st.secrets  # může vyhodit chybu, pokud není secrets.toml
+            secret_info = dict(_secrets).get(STREAMLIT_SECRET_NAME)
+            if secret_info:
+                creds = service_account.Credentials.from_service_account_info(secret_info)
+                print("--- INFO: Klíč inicializován ze Streamlit secrets ---")
+            else:
+                st.error("Streamlit secrets nenašly položku 'gcp_service_account'.")
+                return None, False
+        except Exception:
+            st.error("Streamlit secrets nejsou dostupné (žádné secrets.toml).")
+            return None, False
+
+    else:
+        # Cloud Run a nemáme ENV ani lokální soubor
+        st.error(f"ENV {ENV_SECRET_NAME} není nastavena a lokální soubor neexistuje. "
+                 f"Na Cloud Run musíte přidat secret jako ENV.")
         return None, False
 
-    # Společná inicializace Vertex AI zůstává stejná
+    # Inicializace Vertex AI
     try:
         vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=creds)
         model = GenerativeModel(MODEL_NAME)
         return model, True
     except Exception as e:
-        st.warning(f"Podařilo se načíst klíč, ale selhala inicializace Vertex AI: {e}")
+        st.warning(f"Klíč načten, ale selhala inicializace Vertex AI: {e}")
         return None, False
 
 
