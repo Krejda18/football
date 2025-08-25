@@ -46,54 +46,68 @@ EXCLUDE_FROM_ALL_METRICS = {
     "Age"
 }
 
-def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
-    """
-    Pořadí:
-      Cloud Run (detekce přes K_SERVICE): ENV -> Local  (žádné st.secrets)
-      Jinde: ENV -> Local -> Streamlit secrets
-    """
-    creds = None
-    is_cloud_run = bool(os.environ.get("K_SERVICE"))  # Cloud Run detekce
+ddef _is_cloud_env() -> bool:
+    """Robustnější detekce běhu v cloudu (Cloud Run / GCP)."""
+    return bool(
+        os.environ.get("K_SERVICE") or
+        os.environ.get("GOOGLE_CLOUD_PROJECT") or
+        os.environ.get("PORT")  # Cloud Run předává PORT
+    )
 
-    # 1) ENV (Cloud Run i jinde)
+def _safe_get_streamlit_secret(key: str):
+    """Bezpečný přístup ke st.secrets[key]; mimo Streamlit prostředí vrací None."""
+    try:
+        return dict(st.secrets).get(key)
+    except Exception:
+        return None
+
+def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
+    creds = None
+    in_cloud = _is_cloud_env()
+
+    # Diagnostika (bezpečná – nic tajného netiskne)
+    print("[init] in_cloud:", in_cloud)
+    print("[init] ENV name:", ENV_SECRET_NAME)
+    print("[init] ENV present:", ENV_SECRET_NAME in os.environ)
+    print("[init] ENV length:", len(os.environ.get(ENV_SECRET_NAME, "")))
+
+    # 1) ENV (Cloud Run i lokálně, pokud si ji nastavíš)
     env_val = os.environ.get(ENV_SECRET_NAME, "").strip()
     if env_val:
         try:
             creds = service_account.Credentials.from_service_account_info(json.loads(env_val))
-            print("--- INFO: Klíč inicializován z ENV ---")
+            print("--- INFO: Key initialized from ENV ---")
         except Exception as e:
             st.error(f"Chyba při parsování JSON z ENV {ENV_SECRET_NAME}: {e}")
             return None, False
 
-    # 2) Lokální soubor (fallback pro vývoj, i na Cloud Run pokud bys ho někdy přibalil)
+    # 2) Lokální soubor (fallback pro dev)
     elif os.path.exists(LOCAL_SECRET_PATH):
         try:
             creds = service_account.Credentials.from_service_account_file(LOCAL_SECRET_PATH)
-            print("--- INFO: Klíč inicializován z lokálního souboru ---")
+            print("--- INFO: Key initialized from local file ---")
         except Exception as e:
             st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
             return None, False
 
-    # 3) Streamlit secrets (pouze mimo Cloud Run)
-    elif not is_cloud_run:
-        try:
-            # Přístup obalte try/except – Streamlit bez secrets vyhazuje výjimku
-            _secrets = st.secrets  # může vyhodit chybu, pokud není secrets.toml
-            secret_info = dict(_secrets).get(STREAMLIT_SECRET_NAME)
-            if secret_info:
+    # 3) Streamlit secrets – pouze MIMO cloud
+    elif not in_cloud:
+        secret_info = _safe_get_streamlit_secret(STREAMLIT_SECRET_NAME)
+        if secret_info:
+            try:
                 creds = service_account.Credentials.from_service_account_info(secret_info)
-                print("--- INFO: Klíč inicializován ze Streamlit secrets ---")
-            else:
-                st.error("Streamlit secrets nenašly položku 'gcp_service_account'.")
+                print("--- INFO: Key initialized from Streamlit secrets ---")
+            except Exception as e:
+                st.error(f"Chyba při čtení Streamlit secrets: {e}")
                 return None, False
-        except Exception:
-            st.error("Streamlit secrets nejsou dostupné (žádné secrets.toml).")
+        else:
+            st.error(f"Klíč nenalezen: chybí ENV {ENV_SECRET_NAME}, lokální soubor i Streamlit secrets.")
             return None, False
 
     else:
-        # Cloud Run a nemáme ENV ani lokální soubor
-        st.error(f"ENV {ENV_SECRET_NAME} není nastavena a lokální soubor neexistuje. "
-                 f"Na Cloud Run musíte přidat secret jako ENV.")
+        # Cloud prostředí a nemáme ENV ani lokální soubor
+        st.error(f"ENV {ENV_SECRET_NAME} není nastavená a lokální soubor neexistuje. "
+                 f"V Cloud Run přidej secret jako ENV: {ENV_SECRET_NAME}=gemini-api-key:latest.")
         return None, False
 
     # Inicializace Vertex AI
