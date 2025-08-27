@@ -25,17 +25,6 @@ TOP_CLUBS = ["Slavia Praha", "Sparta Praha", "Viktoria Plzeň"]
 COL_POS = "Converted Position"
 MIN_MINUTES = 500
 
-
-# --- Konfigurace pro Google Cloud & Gemini ---
-PROJECT_ID = "inside-data-story"
-LOCATION = "europe-west1"
-MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
-
-# Cesty a názvy pro tajné klíče v různých prostředích
-ENV_SECRET_NAME = "GCP_SA_JSON"
-STREAMLIT_SECRET_NAME = "gcp_service_account"
-LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
-
 # Metriky, které nechci v přehledu "Všechny metriky" a v H2H srovnání metrik
 EXCLUDE_FROM_ALL_METRICS = {
     "Market value",
@@ -46,71 +35,91 @@ EXCLUDE_FROM_ALL_METRICS = {
     "Age"
 }
 
-ddef _is_cloud_env() -> bool:
-    """Robustnější detekce běhu v cloudu (Cloud Run / GCP)."""
+
+PROJECT_ID = "inside-data-story"
+LOCATION = "europe-west1"
+MODEL_NAME = "gemini-2.5-pro"
+
+# Podporované názvy ENV proměnných
+ENV_CANDIDATES = ["GCP_SA_JSON", "GCP_SERVICE_ACCOUNT_JSON"]
+
+# Lokální fallback
+LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
+
+# Streamlit Cloud secrets
+STREAMLIT_SECRET_NAME = "gcp_service_account"
+
+
+def _is_cloud_run() -> bool:
+    """Spolehlivá detekce Cloud Run prostředí."""
     return bool(
         os.environ.get("K_SERVICE") or
         os.environ.get("GOOGLE_CLOUD_PROJECT") or
-        os.environ.get("PORT")  # Cloud Run předává PORT
+        os.environ.get("PORT")
     )
 
+
 def _safe_get_streamlit_secret(key: str):
-    """Bezpečný přístup ke st.secrets[key]; mimo Streamlit prostředí vrací None."""
+    """Bezpečný přístup ke st.secrets (nevyhodí výjimku mimo Streamlit Cloud)."""
     try:
         return dict(st.secrets).get(key)
     except Exception:
         return None
 
+
+def _get_env_json():
+    """Vezme první dostupnou ENV proměnnou z kandidátů."""
+    for name in ENV_CANDIDATES:
+        val = os.environ.get(name, "").strip()
+        if val:
+            return name, val
+    return None, ""
+
+
 def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
     creds = None
-    in_cloud = _is_cloud_env()
+    in_cloud = _is_cloud_run()
 
-    # Diagnostika (bezpečná – nic tajného netiskne)
-    print("[init] in_cloud:", in_cloud)
-    print("[init] ENV name:", ENV_SECRET_NAME)
-    print("[init] ENV present:", ENV_SECRET_NAME in os.environ)
-    print("[init] ENV length:", len(os.environ.get(ENV_SECRET_NAME, "")))
+    print("[init] is_cloud_run:", in_cloud)
 
-    # 1) ENV (Cloud Run i lokálně, pokud si ji nastavíš)
-    env_val = os.environ.get(ENV_SECRET_NAME, "").strip()
+    # 1) ENV (Cloud Run i lokálně, pokud si nastavíš)
+    env_name, env_val = _get_env_json()
     if env_val:
         try:
             creds = service_account.Credentials.from_service_account_info(json.loads(env_val))
-            print("--- INFO: Key initialized from ENV ---")
+            print(f"--- INFO: Klíč inicializován z ENV ({env_name}) ---")
         except Exception as e:
-            st.error(f"Chyba při parsování JSON z ENV {ENV_SECRET_NAME}: {e}")
+            st.error(f"Chyba při parsování JSON z ENV {env_name}: {e}")
             return None, False
 
-    # 2) Lokální soubor (fallback pro dev)
+    # 2) Lokální soubor
     elif os.path.exists(LOCAL_SECRET_PATH):
         try:
             creds = service_account.Credentials.from_service_account_file(LOCAL_SECRET_PATH)
-            print("--- INFO: Key initialized from local file ---")
+            print("--- INFO: Klíč inicializován z lokálního souboru ---")
         except Exception as e:
             st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
             return None, False
 
-    # 3) Streamlit secrets – pouze MIMO cloud
+    # 3) Streamlit Cloud secrets (pouze mimo Cloud Run)
     elif not in_cloud:
         secret_info = _safe_get_streamlit_secret(STREAMLIT_SECRET_NAME)
         if secret_info:
             try:
                 creds = service_account.Credentials.from_service_account_info(secret_info)
-                print("--- INFO: Key initialized from Streamlit secrets ---")
+                print("--- INFO: Klíč inicializován ze Streamlit secrets ---")
             except Exception as e:
                 st.error(f"Chyba při čtení Streamlit secrets: {e}")
                 return None, False
         else:
-            st.error(f"Klíč nenalezen: chybí ENV {ENV_SECRET_NAME}, lokální soubor i Streamlit secrets.")
+            st.error("Streamlit secrets nejsou dostupné a nenalezen ENV ani lokální soubor.")
             return None, False
 
     else:
-        # Cloud prostředí a nemáme ENV ani lokální soubor
-        st.error(f"ENV {ENV_SECRET_NAME} není nastavená a lokální soubor neexistuje. "
-                 f"V Cloud Run přidej secret jako ENV: {ENV_SECRET_NAME}=gemini-api-key:latest.")
+        st.error("Na Cloud Run chybí ENV secret (GCP_SA_JSON nebo GCP_SERVICE_ACCOUNT_JSON).")
         return None, False
 
-    # Inicializace Vertex AI
+    # --- Vertex AI init ---
     try:
         vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=creds)
         model = GenerativeModel(MODEL_NAME)
