@@ -636,7 +636,7 @@ if app_mode == "Detail hráče":
     page_single_player_view()
 elif app_mode == "Srovnání hráčů":
     page_player_comparison()
-elif app_mode == "AI Skaut":
+elif app_mode == "AI Skaut BETA":
     page_ai_scout()
 elif app_mode == "Hráč vs. Hráč":
     page_player_vs_player()
