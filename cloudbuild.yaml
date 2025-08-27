@@ -1,13 +1,8 @@
 steps:
-# Krok 1: Sestavení Docker image
 - name: 'gcr.io/cloud-builders/docker'
   args: ['build', '-t', 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}', '.']
-
-# Krok 2: Nahrání image do Artifact Registry
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}']
-
-# Krok 3: Nasazení nové verze na Cloud Run
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: bash
   args:
@@ -20,12 +15,9 @@ steps:
         --memory=2Gi \
         --timeout=600s \
         --update-secrets=GCP_SA_JSON=gemini-api-key:latest \
-        --allow-unauthenticated # <<< ZMĚNA: Aplikace je opět veřejná
-
-# Seznam vytvořených imagů
+        --min-instances=1 \
+        --allow-unauthenticated
 images:
 - 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}'
-
-# Nastavení logování
 options:
   logging: CLOUD_LOGGING_ONLY
