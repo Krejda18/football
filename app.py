@@ -15,7 +15,7 @@ from player_analysis import (
 DATA_DIR = "./Data"
 
 # --- Hlavní APLIKACE s navigací ---
-st.set_page_config(page_title="Skautingový report", page_icon="logo.png", layout="wide")
+st.set_page_config(page_title="Test Skautingový report", page_icon="logo.png", layout="wide")
 
 # --- HLAVIČKA ---
 left_col, right_col = st.columns([4, 1])
