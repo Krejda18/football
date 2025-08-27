@@ -1,32 +1,31 @@
 steps:
-# Build
+# Build the container image
 - name: 'gcr.io/cloud-builders/docker'
   args: ['build', '-t', 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}', '.']
 
-# Push
+# Push the container image to Artifact Registry
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}']
 
-# Update + Deploy to Cloud Run (service: football)
+# Deploy container image to Cloud Run
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: bash
   args:
     - -c
     - |
-      # 1) Pro jistotu zruš všechny mounty (pokud tam historicky zůstaly)
-      gcloud run services update football \
-        --region=europe-west1 \
-        --clear-mounts || true
-
-      # 2) Deploy nové revize do SPRÁVNÉ služby: football
       gcloud run deploy football \
         --image=europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA} \
         --region=europe-west1 \
-        --cpu=2 \
-        --memory=4Gi \
+        --cpu=1 \
+        --memory=2Gi \
         --timeout=600s \
-        --update-secrets=GCP_SA_JSON=gemini-api-key:latest \
-        --allow-unauthenticated
+        --update-secrets=GCP_SA_JSON=gemini-api-key:latest,AUTH_CONFIG=streamlit-auth-config:latest \
+        --min-instances=1
 
+# Add the image to the list of built images
 images:
 - 'europe-west1-docker.pkg.dev/$PROJECT_ID/football/${REPO_NAME}:${COMMIT_SHA}'
+
+# <<< TATO SEKCE ŘEŠÍ PROBLÉM >>>
+options:
+  logging: CLOUD_LOGGING_ONLY
