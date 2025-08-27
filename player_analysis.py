@@ -25,6 +25,16 @@ TOP_CLUBS = ["Slavia Praha", "Sparta Praha", "Viktoria Plzeň"]
 COL_POS = "Converted Position"
 MIN_MINUTES = 500
 
+
+# --- Konfigurace pro Google Cloud & Gemini ---
+PROJECT_ID = "inside-data-story"
+LOCATION = "europe-west1"
+MODEL_NAME = "gemini-2.5-pro-001"
+
+# Názvy pro tajné klíče
+ENV_SECRET_NAME = "GCP_SA_JSON"
+LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
+
 # Metriky, které nechci v přehledu "Všechny metriky" a v H2H srovnání metrik
 EXCLUDE_FROM_ALL_METRICS = {
     "Market value",
@@ -35,99 +45,53 @@ EXCLUDE_FROM_ALL_METRICS = {
     "Age"
 }
 
-
-PROJECT_ID = "inside-data-story"
-LOCATION = "europe-west1"
-MODEL_NAME = "gemini-2.5-pro"
-
-# Podporované názvy ENV proměnných
-ENV_CANDIDATES = ["GCP_SA_JSON", "GCP_SERVICE_ACCOUNT_JSON"]
-
-# Lokální fallback
-LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
-
-# Streamlit Cloud secrets
-STREAMLIT_SECRET_NAME = "gcp_service_account"
-
-
-def _is_cloud_run() -> bool:
-    """Spolehlivá detekce Cloud Run prostředí."""
-    return bool(
-        os.environ.get("K_SERVICE") or
-        os.environ.get("GOOGLE_CLOUD_PROJECT") or
-        os.environ.get("PORT")
-    )
-
-
-def _safe_get_streamlit_secret(key: str):
-    """Bezpečný přístup ke st.secrets (nevyhodí výjimku mimo Streamlit Cloud)."""
-    try:
-        return dict(st.secrets).get(key)
-    except Exception:
-        return None
-
-
-def _get_env_json():
-    """Vezme první dostupnou ENV proměnnou z kandidátů."""
-    for name in ENV_CANDIDATES:
-        val = os.environ.get(name, "").strip()
-        if val:
-            return name, val
-    return None, ""
-
-
+# <<< ZMĚNA ZDE: Celá tato funkce byla přepsána a zjednodušena >>>
 def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
+    """
+    Inicializuje Gemini. Hledá klíč na dvou místech v tomto pořadí:
+    1. Proměnná prostředí (pro Cloud Run).
+    2. Lokální JSON soubor (pro lokální vývoj).
+    """
     creds = None
-    in_cloud = _is_cloud_run()
-
-    print("[init] is_cloud_run:", in_cloud)
-
-    # 1) ENV (Cloud Run i lokálně, pokud si nastavíš)
-    env_name, env_val = _get_env_json()
+    
+    # 1. Pokus o načtení z proměnné prostředí (pro Cloud Run)
+    env_val = os.environ.get(ENV_SECRET_NAME)
     if env_val:
         try:
-            creds = service_account.Credentials.from_service_account_info(json.loads(env_val))
-            print(f"--- INFO: Klíč inicializován z ENV ({env_name}) ---")
+            # Obsah proměnné je JSON string, je třeba ho naparsovat
+            secret_info = json.loads(env_val)
+            creds = service_account.Credentials.from_service_account_info(secret_info)
+            print("--- INFO: Klíč úspěšně inicializován z proměnné prostředí (ENV). ---")
         except Exception as e:
-            st.error(f"Chyba při parsování JSON z ENV {env_name}: {e}")
+            st.error(f"Chyba při parsování klíče z proměnné prostředí '{ENV_SECRET_NAME}': {e}")
             return None, False
-
-    # 2) Lokální soubor
+            
+    # 2. Pokud ENV neexistuje, pokus o načtení z lokálního souboru (pro vývoj)
     elif os.path.exists(LOCAL_SECRET_PATH):
         try:
             creds = service_account.Credentials.from_service_account_file(LOCAL_SECRET_PATH)
-            print("--- INFO: Klíč inicializován z lokálního souboru ---")
+            print(f"--- INFO: Klíč úspěšně inicializován z lokálního souboru '{LOCAL_SECRET_PATH}'. ---")
         except Exception as e:
             st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
             return None, False
-
-    # 3) Streamlit Cloud secrets (pouze mimo Cloud Run)
-    elif not in_cloud:
-        secret_info = _safe_get_streamlit_secret(STREAMLIT_SECRET_NAME)
-        if secret_info:
-            try:
-                creds = service_account.Credentials.from_service_account_info(secret_info)
-                print("--- INFO: Klíč inicializován ze Streamlit secrets ---")
-            except Exception as e:
-                st.error(f"Chyba při čtení Streamlit secrets: {e}")
-                return None, False
-        else:
-            st.error("Streamlit secrets nejsou dostupné a nenalezen ENV ani lokální soubor.")
-            return None, False
-
+            
+    # 3. Pokud selhalo vše, zobrazí se chyba
     else:
-        st.error("Na Cloud Run chybí ENV secret (GCP_SA_JSON nebo GCP_SERVICE_ACCOUNT_JSON).")
+        st.error(
+            "Chybí přihlašovací údaje pro Google Cloud!\n\n"
+            f"- V Cloud Run: Ujistěte se, že máte nastavený secret jako proměnnou prostředí s názvem '{ENV_SECRET_NAME}'.\n"
+            f"- Pro lokální spuštění: Ujistěte se, že v kořenovém adresáři existuje soubor '{LOCAL_SECRET_PATH}'."
+        )
         return None, False
 
-    # --- Vertex AI init ---
+    # Pokud máme credentials, inicializujeme Vertex AI
     try:
         vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=creds)
         model = GenerativeModel(MODEL_NAME)
         return model, True
     except Exception as e:
-        st.warning(f"Klíč načten, ale selhala inicializace Vertex AI: {e}")
+        st.warning(f"Klíč byl načten, ale selhala inicializace Vertex AI: {e}")
         return None, False
-
 
 # --- Cachované funkce ---
 def load_and_process_file(file_path: Path) -> pd.DataFrame:
@@ -205,7 +169,6 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
 ]
     common_metrics = p_avg.index.intersection(lg_avg.index)
 
-    # ⬇️ zde přidej i tvoje nové exclusions
     metrics_to_display = [
         m for m in common_metrics
         if m not in GK_METRICS_TO_EXCLUDE
@@ -229,7 +192,6 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
     analysis_text = "AI analýza není dostupná."
     if gemini_available and gemini_model:
         try:
-            # --- ZMĚNA ZDE: Volání nové verze `build_prompt` se správnými daty (tabulkami) ---
             prompt = build_prompt(player_name, [main_position], sec_tbl, sub_tbl, all_metrics_tbl)
             msg = Content(role="user", parts=[Part.from_text(prompt)])
             config = GenerationConfig(max_output_tokens=10000, temperature=0.5, top_k=30)
@@ -263,8 +225,6 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
         "analysis": analysis_text,
         "gemini_available": gemini_available,
     }
-
-# V souboru player_analysis.py
 
 @st.cache_data
 def calculate_all_player_metrics_and_ratings(all_players_df: pd.DataFrame, all_avg_df: pd.DataFrame) -> pd.DataFrame:
@@ -342,7 +302,6 @@ def enrich_data_for_ai_scout(all_players_df: pd.DataFrame, all_avg_df: pd.DataFr
 
 
 def prepare_data_for_ai_scout(ratings_df: pd.DataFrame) -> str:
-    """Převede Obohacená data hráčů na textový formát pro AI."""
     player_strings = []
     for _, row in ratings_df.iterrows():
         base_info = (
@@ -358,28 +317,23 @@ def prepare_data_for_ai_scout(ratings_df: pd.DataFrame) -> str:
 
 
 def run_ai_scout(user_needs: str) -> str:
-    """Spustí celý proces AI skautingu s obohacenými daty."""
     gemini_model, gemini_available = initialize_gemini()
     if not gemini_available:
         return "Chyba: Služba Gemini AI není dostupná."
 
-    # Načtení dat a jejich OBOHACENÍ pro AI
     all_players_df = load_all_player_data()
     avg_files = list(Path(AVG_DATA_DIR).glob("*.xlsx"))
     all_avg_dfs = [load_and_process_file(file) for file in avg_files]
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
     
-    # Použijeme novou funkci pro obohacení dat
     enriched_df = enrich_data_for_ai_scout(all_players_df, avg_df_filtered)
 
     if enriched_df.empty:
         return "Nenalezena žádná data hráčů pro analýzu."
 
-    # Omezení počtu hráčů pro AI (pošleme TOP 150)
     final_candidates_df = enriched_df.nlargest(500, 'Rating vs Liga')
 
-    # Příprava dat a spuštění AI
     players_data_string = prepare_data_for_ai_scout(final_candidates_df)
     prompt = build_ai_scout_prompt(user_needs, players_data_string)
     
@@ -393,22 +347,17 @@ def run_ai_scout(user_needs: str) -> str:
     
 
 def get_custom_comparison(player_series: pd.Series, main_position: str, custom_positions: list, all_avg_df: pd.DataFrame) -> Dict[str, Any]:
-    """
-    Vypočítá srovnání jednoho hráče vůči průměru vybrané skupiny pozic.
-    """
     if not custom_positions:
         return {}
 
     logic_data = get_logic_definition()
     
-    # 1. Vytvoříme průměr pro vlastní skupinu
     custom_avg_df = all_avg_df[all_avg_df[COL_POS].isin(custom_positions)]
     if custom_avg_df.empty:
         return {"error": "Pro vybrané pozice nebyla nalezena žádná srovnávací data."}
         
     custom_avg = custom_avg_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
 
-    # 2. Provedeme srovnání (rating, sekce, podsekce)
     rat_custom = rating_series(player_series, custom_avg)
     logic_df = logic_flat_df([main_position], logic_data)
     logic_metrics_in_data = [m for m in logic_df["Metric"] if m in rat_custom.index]
@@ -416,7 +365,6 @@ def get_custom_comparison(player_series: pd.Series, main_position: str, custom_p
     score_custom = weighted_score(rat_custom[logic_metrics_in_data], logic_df)
     sec_custom, sub_custom = breakdown_scores(rat_custom, main_position, logic_data)
     
-    # Přejmenujeme sloupce pro přehlednost
     sec_tbl = sec_custom.rename(columns={"Score": "vs. Vlastní výběr"})
     sub_tbl = sub_custom.rename(columns={"Score": "vs. Vlastní výběr"})
 
@@ -428,27 +376,21 @@ def get_custom_comparison(player_series: pd.Series, main_position: str, custom_p
 
 
 def get_player_comparison_data(player1_name: str, player2_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame) -> Dict[str, Any]:
-    """Připraví data pro srovnání dvou hráčů."""
-    
     result1 = analyze_player(player1_name, player_df, avg_df)
     result2 = analyze_player(player2_name, player_df, avg_df)
 
-    # Získáme zkrácená jména pro nadpisy sloupců
     p1_name_short = player1_name.split(' ')[-1]
     p2_name_short = player2_name.split(' ')[-1]
     
-    # Přejmenujeme sloupce s ratingy, aby se daly spojit
     sec_tbl1 = result1["sec_tbl"].rename(columns={"vs. League": f"{p1_name_short} vs. Liga", "vs. TOP 3": f"{p1_name_short} vs. TOP 3"})
     sec_tbl2 = result2["sec_tbl"].rename(columns={"vs. League": f"{p2_name_short} vs. Liga", "vs. TOP 3": f"{p2_name_short} vs. TOP 3"})
     
     sub_tbl1 = result1["sub_tbl"].rename(columns={"vs. League": f"{p1_name_short} vs. Liga", "vs. TOP 3": f"{p1_name_short} vs. TOP 3"})
     sub_tbl2 = result2["sub_tbl"].rename(columns={"vs. League": f"{p2_name_short} vs. Liga", "vs. TOP 3": f"{p2_name_short} vs. TOP 3"})
 
-    # Přejmenujeme sloupce s absolutními hodnotami
     all_m_tbl1 = result1["all_metrics"][['Metric', 'Hráč']].rename(columns={"Hráč": p1_name_short})
     all_m_tbl2 = result2["all_metrics"][['Metric', 'Hráč']].rename(columns={"Hráč": p2_name_short})
 
-    # Spojíme tabulky
     comparison_sec = pd.merge(sec_tbl1, sec_tbl2, on="Section")
     comparison_sub = pd.merge(sub_tbl1, sub_tbl2, on=["Section", "Subsection"])
     comparison_all = pd.merge(all_m_tbl1, all_m_tbl2, on="Metric")
@@ -464,15 +406,9 @@ def get_player_comparison_data(player1_name: str, player2_name: str, player_df: 
     }
 
 def analyze_head_to_head(player1_name: str, player2_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame) -> str:
-    """
-    Postaví P1 vs P2 rozdíly (sekce/podsekce/největší metriky) a požádá Gemini o H2H shrnutí.
-    Vrací markdown text. Pokud Gemini není k dispozici, vrátí vysvětlení.
-    """
-    # Reuse existujících výpočtů
     r1 = analyze_player(player1_name, player_df, avg_df)
     r2 = analyze_player(player2_name, player_df, avg_df)
 
-    # Hlavičky pro prompt (z player_df)
     def _header_for(name: str) -> dict:
         rows = player_df[player_df["Player"] == name]
         if rows.empty:
@@ -488,7 +424,6 @@ def analyze_head_to_head(player1_name: str, player2_name: str, player_df: pd.Dat
 
     h1, h2 = _header_for(player1_name), _header_for(player2_name)
 
-    # Δ pro sekce
     s1 = r1["sec_tbl"].rename(columns={"vs. League": "P1 vs. Liga", "vs. TOP 3": "P1 vs. TOP 3"})
     s2 = r2["sec_tbl"].rename(columns={"vs. League": "P2 vs. Liga", "vs. TOP 3": "P2 vs. TOP 3"})
     sec_delta = s1.merge(s2, on="Section", how="inner")
@@ -497,7 +432,6 @@ def analyze_head_to_head(player1_name: str, player2_name: str, player_df: pd.Dat
     if {"P1 vs. TOP 3", "P2 vs. TOP 3"}.issubset(sec_delta.columns):
         sec_delta["Δ vs. TOP 3"] = sec_delta["P1 vs. TOP 3"] - sec_delta["P2 vs. TOP 3"]
 
-    # Δ pro podsekce
     u1 = r1["sub_tbl"].rename(columns={"vs. League": "P1 vs. Liga", "vs. TOP 3": "P1 vs. TOP 3"})
     u2 = r2["sub_tbl"].rename(columns={"vs. League": "P2 vs. Liga", "vs. TOP 3": "P2 vs. TOP 3"})
     sub_delta = u1.merge(u2, on=["Section", "Subsection"], how="inner")
@@ -506,7 +440,6 @@ def analyze_head_to_head(player1_name: str, player2_name: str, player_df: pd.Dat
     if {"P1 vs. TOP 3", "P2 vs. TOP 3"}.issubset(sub_delta.columns):
         sub_delta["Δ vs. TOP 3"] = sub_delta["P1 vs. TOP 3"] - sub_delta["P2 vs. TOP 3"]
 
-    # Top metriky (největší rozdíly vs. liga)
     all1 = r1["all_metrics"][["Metric", "vs. League"]].rename(columns={"vs. League": "P1 vs. League"})
     all2 = r2["all_metrics"][["Metric", "vs. League"]].rename(columns={"vs. League": "P2 vs. League"})
     top_metrics = all1.merge(all2, on="Metric", how="inner")
@@ -515,7 +448,6 @@ def analyze_head_to_head(player1_name: str, player2_name: str, player_df: pd.Dat
     top_metrics["DeltaAbs"] = (top_metrics["P1 vs. League"] - top_metrics["P2 vs. League"]).abs()
     top_metrics = top_metrics.sort_values("DeltaAbs", ascending=False).head(10)
 
-    # Gemini
     gemini_model, gemini_available = initialize_gemini()
     if not gemini_available or gemini_model is None:
         return "AI analýza H2H není dostupná (Gemini není inicializováno). Zkontroluj service account / st.secrets."
