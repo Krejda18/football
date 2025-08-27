@@ -29,10 +29,11 @@ MIN_MINUTES = 500
 # --- Konfigurace pro Google Cloud & Gemini ---
 PROJECT_ID = "inside-data-story"
 LOCATION = "europe-west1"
-MODEL_NAME = "gemini-2.5-pro-001"
+MODEL_NAME = "gemini-2.5-pro"
 
-# Názvy pro tajné klíče
+# Názvy pro tajné klíče v různých prostředích
 ENV_SECRET_NAME = "GCP_SA_JSON"
+STREAMLIT_SECRET_NAME = "gcp_service_account"
 LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
 
 # Metriky, které nechci v přehledu "Všechny metriky" a v H2H srovnání metrik
@@ -45,42 +46,58 @@ EXCLUDE_FROM_ALL_METRICS = {
     "Age"
 }
 
-# <<< ZMĚNA ZDE: Celá tato funkce byla přepsána a zjednodušena >>>
+# <<< ZMĚNA ZDE: Univerzální funkce pro načtení klíče >>>
 def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
     """
-    Inicializuje Gemini. Hledá klíč na dvou místech v tomto pořadí:
-    1. Proměnná prostředí (pro Cloud Run).
-    2. Lokální JSON soubor (pro lokální vývoj).
+    Inicializuje Gemini s robustní logikou pro různá prostředí.
+    Pořadí kontroly:
+    1. Proměnná prostředí (pro Google Cloud Run).
+    2. Streamlit Secrets (pro Streamlit Community Cloud).
+    3. Lokální JSON soubor (pro lokální vývoj).
     """
     creds = None
-    
-    # 1. Pokus o načtení z proměnné prostředí (pro Cloud Run)
+    secret_info = None
+
+    # 1. Pokus o načtení z proměnné prostředí (priorita pro Google Cloud Run)
     env_val = os.environ.get(ENV_SECRET_NAME)
     if env_val:
         try:
-            # Obsah proměnné je JSON string, je třeba ho naparsovat
             secret_info = json.loads(env_val)
-            creds = service_account.Credentials.from_service_account_info(secret_info)
-            print("--- INFO: Klíč úspěšně inicializován z proměnné prostředí (ENV). ---")
-        except Exception as e:
-            st.error(f"Chyba při parsování klíče z proměnné prostředí '{ENV_SECRET_NAME}': {e}")
+            print("--- INFO: Nalezen klíč v proměnné prostředí (ENV). ---")
+        except json.JSONDecodeError as e:
+            st.error(f"Chyba při parsování JSON z proměnné prostředí '{ENV_SECRET_NAME}': {e}")
             return None, False
-            
-    # 2. Pokud ENV neexistuje, pokus o načtení z lokálního souboru (pro vývoj)
+
+    # 2. Pokud ENV neexistuje, zkusíme Streamlit Secrets (pro Streamlit Cloud)
+    # Použijeme bezpečnou kontrolu, abychom se vyhnuli chybě, pokud st.secrets neexistuje.
+    elif hasattr(st, 'secrets') and STREAMLIT_SECRET_NAME in st.secrets:
+        secret_info = dict(st.secrets[STREAMLIT_SECRET_NAME])
+        print("--- INFO: Nalezen klíč ve Streamlit Secrets. ---")
+    
+    # 3. Pokud ani jedno z výše uvedeného nefunguje, zkusíme lokální soubor (pro vývoj)
     elif os.path.exists(LOCAL_SECRET_PATH):
         try:
-            creds = service_account.Credentials.from_service_account_file(LOCAL_SECRET_PATH)
-            print(f"--- INFO: Klíč úspěšně inicializován z lokálního souboru '{LOCAL_SECRET_PATH}'. ---")
+            with open(LOCAL_SECRET_PATH) as f:
+                secret_info = json.load(f)
+            print(f"--- INFO: Nalezen klíč v lokálním souboru '{LOCAL_SECRET_PATH}'. ---")
         except Exception as e:
             st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
             return None, False
-            
-    # 3. Pokud selhalo vše, zobrazí se chyba
+
+    # Pokud jsme našli informace o klíči, vytvoříme credentials
+    if secret_info:
+        try:
+            creds = service_account.Credentials.from_service_account_info(secret_info)
+        except Exception as e:
+            st.error(f"Chyba při vytváření přihlašovacích údajů z nalezeného klíče: {e}")
+            return None, False
     else:
+        # Pokud jsme nic nenašli, zobrazíme komplexní chybovou hlášku
         st.error(
-            "Chybí přihlašovací údaje pro Google Cloud!\n\n"
-            f"- V Cloud Run: Ujistěte se, že máte nastavený secret jako proměnnou prostředí s názvem '{ENV_SECRET_NAME}'.\n"
-            f"- Pro lokální spuštění: Ujistěte se, že v kořenovém adresáři existuje soubor '{LOCAL_SECRET_PATH}'."
+            "Chybí přihlašovací údaje pro Google Cloud! Zkontrolujte nastavení pro vaše prostředí:\n\n"
+            f"- **Pro Google Cloud Run:** Ujistěte se, že máte nastavený secret jako proměnnou prostředí s názvem `{ENV_SECRET_NAME}`.\n"
+            f"- **Pro Streamlit Cloud:** Ujistěte se, že máte v nastavení aplikace přidaný secret s názvem `{STREAMLIT_SECRET_NAME}`.\n"
+            f"- **Pro lokální spuštění:** Ujistěte se, že v kořenovém adresáři existuje soubor `{LOCAL_SECRET_PATH}`."
         )
         return None, False
 
@@ -88,6 +105,7 @@ def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
     try:
         vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=creds)
         model = GenerativeModel(MODEL_NAME)
+        print("--- INFO: Vertex AI úspěšně inicializováno. ---")
         return model, True
     except Exception as e:
         st.warning(f"Klíč byl načten, ale selhala inicializace Vertex AI: {e}")
@@ -226,6 +244,7 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
         "gemini_available": gemini_available,
     }
 
+# Ostatní funkce zůstávají beze změny...
 @st.cache_data
 def calculate_all_player_metrics_and_ratings(all_players_df: pd.DataFrame, all_avg_df: pd.DataFrame) -> pd.DataFrame:
     logic_data = get_logic_definition()
@@ -450,7 +469,7 @@ def analyze_head_to_head(player1_name: str, player2_name: str, player_df: pd.Dat
 
     gemini_model, gemini_available = initialize_gemini()
     if not gemini_available or gemini_model is None:
-        return "AI analýza H2H není dostupná (Gemini není inicializováno). Zkontroluj service account / st.secrets."
+        return "AI analýza H2H není dostupná (Gemini není inicializováno)."
 
     prompt = build_head_to_head_prompt(
         player1_name, player2_name,
