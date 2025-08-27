@@ -8,22 +8,19 @@ from player_analysis import (
     load_and_process_file, analyze_player, load_all_player_data, 
     calculate_all_player_metrics_and_ratings, run_ai_scout, 
     get_custom_comparison, get_player_comparison_data, analyze_head_to_head,
-    AVG_DATA_DIR, MIN_MINUTES, COL_POS
+    AVG_DATA_DIR, MIN_MINUTES, COL_POS, DATA_DIR
 )
 
-# --- Cesty ---
-DATA_DIR = "./Data"
-
 # --- Hlavní APLIKACE s navigací ---
-st.set_page_config(page_title="Test Skautingový report", page_icon="logo.png", layout="wide")
+st.set_page_config(page_title="Skautingový report", page_icon="logo.png", layout="wide")
 
 # --- HLAVIČKA ---
 left_col, right_col = st.columns([4, 1])
 with right_col:
-    st.image("logo.png", width=500)  # Libovolné logo aplikace
+    st.image("logo.png", width=500)
 
 st.sidebar.title("Navigace")
-app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče", "AI Skaut", "Hráč vs. Hráč"])  # přidal jsem i další pohledy pro pohodlí
+app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče", "AI Skaut", "Hráč vs. Hráč"])
 
 # --- Zúžení sidebaru ---
 st.markdown(
@@ -41,14 +38,9 @@ st.markdown(
 # =============================
 
 def aggrid_safe_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Zajistí, že do AgGrid nepůjdou BigInt hodnoty.
-    - velká celá čísla → float64
-    - extrémně velká čísla (> Number.MAX_SAFE_INTEGER) → string
-    """
     if df.empty:
         return df
     df = df.copy()
-    # číselné sloupce
     num_cols = df.select_dtypes(include=["number", "int64", "Int64", "uint64"]).columns
     for c in num_cols:
         s = pd.to_numeric(df[c], errors="coerce")
@@ -56,7 +48,7 @@ def aggrid_safe_df(df: pd.DataFrame) -> pd.DataFrame:
             max_val = np.nanmax(s.to_numpy(dtype="float64"), initial=np.nan)
         except Exception:
             max_val = np.nan
-        if pd.notna(max_val) and max_val > 9_007_199_254_740_991:  # JS Number.MAX_SAFE_INTEGER
+        if pd.notna(max_val) and max_val > 9_007_199_254_740_991:
             df[c] = df[c].astype("string")
         else:
             df[c] = df[c].astype("float64")
@@ -100,7 +92,6 @@ def process_dataframe_for_display(df: pd.DataFrame) -> pd.DataFrame:
     processed_df.loc[mask, first_col_name] = ''
     return processed_df
 
-# Styly pro tabulky v detailu hráče
 table_style_detail_view = [
     {'selector': 'th, td', 'props': [('text-align', 'center'), ('vertical-align', 'middle')]},
     {'selector': 'th', 'props': [('font-weight', 'bold')]},
@@ -121,10 +112,12 @@ table_style_detail_view_sub = [
 def page_single_player_view():
     st.markdown("---")
 
-    league_files = {file.stem: file for file in sorted(Path(DATA_DIR).glob("*.xlsx"))}
-    avg_files = {file.stem: file for file in sorted(Path(AVG_DATA_DIR).glob("*.xlsx"))}
+    # <<< ZMĚNA ZDE: Hledáme soubory s koncovkou .parquet >>>
+    league_files = {file.stem: file for file in sorted(Path(DATA_DIR).glob("*.parquet"))}
+    avg_files = {file.stem: file for file in sorted(Path(AVG_DATA_DIR).glob("*.parquet"))}
+    
     if not league_files or not avg_files:
-        st.error("Chybí datové soubory v adresářích 'data' nebo 'avg_data'.")
+        st.error("Chybí datové soubory v adresářích 'Data_Parquet' nebo 'AVG_Parquet'. Spusťte nejdříve konverzní skript.")
         return
 
     all_avg_dfs = [load_and_process_file(file) for file in avg_files.values()]
@@ -179,7 +172,6 @@ def page_single_player_view():
 
         numeric_cols = ["vs. League", "vs. TOP 3"]
 
-        # --- Vlastní srovnání ---
         st.markdown("---")
         st.markdown("<h3 style='text-align: center;'>🆚 Vlastní srovnání</h3>", unsafe_allow_html=True)
 
@@ -269,7 +261,7 @@ def page_player_comparison():
     st.markdown("<h1 style='text-align: center;'>Srovnání hráčů napříč soutěžemi</h1>", unsafe_allow_html=True)
 
     all_players_df = load_all_player_data()
-    avg_files = list(Path(AVG_DATA_DIR).glob("*.xlsx"))
+    avg_files = list(Path(AVG_DATA_DIR).glob("*.parquet"))
     all_avg_dfs = [load_and_process_file(file) for file in avg_files]
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
@@ -314,7 +306,6 @@ def page_player_comparison():
         format_func=format_market_value,
     )
 
-    # Aplikace filtrů
     filtered_df = ratings_df.copy()
     if selected_pos != "Všechny pozice":
         filtered_df = filtered_df[filtered_df['Position'] == selected_pos]
@@ -330,7 +321,6 @@ def page_player_comparison():
 
     st.info(f"Zobrazeno {len(filtered_df)} hráčů. Data v tabulce můžete dále řadit a filtrovat.")
 
-    # ==== JS kódy bezpečné vůči BigInt ====
     safeNumberFormatter = JsCode(
         """
         function(params){
@@ -410,14 +400,12 @@ def page_player_comparison():
         """
     )
 
-    # CSS zarovnání hlaviček
     custom_css = {
         ".ag-header-cell-label": {"justify-content": "center !important"},
         ".ag-header-cell[col-id='Player'] .ag-header-cell-label": {"justify-content": "flex-start !important"},
         ".ag-header-cell[col-id='Team'] .ag-header-cell-label": {"justify-content": "flex-start !important"},
     }
 
-    # ↓↓↓ BigInt-safe DataFrame pro grid ↓↓↓
     df_for_grid = aggrid_safe_df(filtered_df)
 
     gb = GridOptionsBuilder.from_dataframe(df_for_grid)
@@ -488,14 +476,12 @@ def page_player_vs_player():
     st.markdown("---")
     st.header("👥 Hráč vs. Hráč")
 
-    # --- data ---
     all_players_df = load_all_player_data()
-    avg_files = list(Path(AVG_DATA_DIR).glob("*.xlsx"))
+    avg_files = list(Path(AVG_DATA_DIR).glob("*.parquet"))
     all_avg_dfs = [load_and_process_file(file) for file in avg_files]
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
 
-    # --- výběr ---
     all_positions = sorted(all_players_df[COL_POS].dropna().unique().tolist())
     selected_pos = st.selectbox("1. Vyberte pozici pro srovnání:", options=all_positions)
     if not selected_pos:
@@ -508,14 +494,12 @@ def page_player_vs_player():
     with col2:
         player2 = st.selectbox("3. Vyberte druhého hráče:", options=[None] + players_on_pos, index=0, key="h2h_p2")
 
-    # --- init session state ---
     ss = st.session_state
     ss.setdefault("h2h_compared", False)
     ss.setdefault("h2h_pair", (None, None))
-    ss.setdefault("h2h_last_comp", None)   # uložené tabulky/hlavičky
-    ss.setdefault("h2h_ai_text", None)     # uložený AI text
+    ss.setdefault("h2h_last_comp", None)
+    ss.setdefault("h2h_ai_text", None)
 
-    # --- akce: porovnat ---
     if st.button("🔍 Porovnat hráče", type="primary"):
         if not player1 or not player2:
             st.warning("Prosím, vyberte oba hráče pro srovnání.")
@@ -525,13 +509,11 @@ def page_player_vs_player():
             with st.spinner(f"Porovnávám hráče {player1} a {player2}..."):
                 comp = get_player_comparison_data(player1, player2, all_players_df, avg_df_filtered)
 
-            # ulož do state (aby se po rerunu znovu vykreslilo)
             ss.h2h_compared = True
             ss.h2h_pair = (player1, player2)
             ss.h2h_last_comp = comp
-            ss.h2h_ai_text = None  # AI smažeme, protože pár/porovnání je nové
+            ss.h2h_ai_text = None
 
-    # --- vykreslení výsledků porovnání ze state (přežije rerun) ---
     if ss.h2h_compared and ss.h2h_last_comp is not None:
         comp = ss.h2h_last_comp
         res1, res2 = comp["result1"], comp["result2"]
@@ -569,7 +551,6 @@ def page_player_vs_player():
                 unsafe_allow_html=True,
             )
 
-        # --- funkce pro "vítěze" zůstává (překryje pozadí, je-li potřeba) ---
         def style_winner(df, p1_name, p2_name, is_ratings=True):
             styled_df = pd.DataFrame('', index=df.index, columns=df.columns)
             highlight = 'background-color: lightgreen'
@@ -591,7 +572,6 @@ def page_player_vs_player():
                 styled_df[p2_col] = np.where(numeric_p2 > numeric_p1, highlight, '')
             return styled_df
 
-        # --- SEKCE ---
         st.markdown("---")
         st.markdown("<h3 style='text-align: center;'>🆚 Srovnání v sekcích</h3>", unsafe_allow_html=True)
         sec_df = comp["comparison_sec"]
@@ -599,14 +579,13 @@ def page_player_vs_player():
         styler_sec = (
             sec_df.style
             .format("{:.0f}", subset=numeric_cols_sec, na_rep="–")
-            .applymap(background_cells, subset=numeric_cols_sec)  # <<<<<<<<<< stejné barvy jako všude
+            .applymap(background_cells, subset=numeric_cols_sec)
             .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=True, axis=None)
             .set_table_styles(table_style_detail_view)
             .hide(axis="index")
         )
         render_styled_df(styler_sec)
 
-        # --- PODSEKCE ---
         st.markdown("<h3 style='text-align: center;'>🆚 Srovnání v podsekcích</h3>", unsafe_allow_html=True)
         sub_df = comp["comparison_sub"]
         sub_processed = process_dataframe_for_display(sub_df)
@@ -614,29 +593,26 @@ def page_player_vs_player():
         styler_sub = (
             sub_processed.style
             .format("{:.0f}", subset=numeric_cols_sub, na_rep="–")
-            .applymap(background_cells, subset=numeric_cols_sub)  # <<<<<<<<<< stejné barvy
+            .applymap(background_cells, subset=numeric_cols_sub)
             .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=True, axis=None)
             .set_table_styles(table_style_detail_view_sub)
             .hide(axis="index")
         )
         render_styled_df(styler_sub)
 
-        # --- METRIKY ---
         st.markdown("<h3 style='text-align: center;'>🆚 Srovnání metrik</h3>", unsafe_allow_html=True)
         all_df = comp["comparison_all"].copy()
-        # najdeme sloupce obou hráčů
         metric_num_cols = [c for c in all_df.columns if c in (p1_short, p2_short)]
         styler_all = (
             all_df.style
             .format("{:.1f}", subset=metric_num_cols, na_rep="–")
-            .applymap(background_cells, subset=metric_num_cols)  # <<<<<<<<<< stejné barvy
+            .applymap(background_cells, subset=metric_num_cols)
             .apply(style_winner, p1_name=p1_short, p2_name=p2_short, is_ratings=False, axis=None)
             .set_table_styles(table_style_detail_view)
             .hide(axis="index")
         )
         render_styled_df(styler_all)
 
-        # --- AI H2H (navázané na uložený pár) ---
         st.markdown("---")
         st.subheader("🧠 AI H2H analýza")
 
