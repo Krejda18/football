@@ -6,6 +6,7 @@ import datetime
 from pathlib import Path
 from typing import Dict, Any, List
 from joblib import Parallel, delayed
+import polars as pl
 
 from google.oauth2 import service_account
 import vertexai
@@ -34,7 +35,7 @@ LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
 
 # --- Paralelizace (konfigurovatelné přes ENV) ---
-JOBLIB_N_JOBS = int(os.environ.get("JOBLIB_N_JOBS", "16"))
+JOBLIB_N_JOBS = int(os.environ.get("JOBLIB_N_JOBS", "2"))
 JOBLIB_BACKEND = os.environ.get("JOBLIB_BACKEND", "loky")  # "loky"=procesy (CPU), "threading"=vlákna (I/O)
 AVAILABLE_JOBS = min(JOBLIB_N_JOBS, (os.cpu_count() or JOBLIB_N_JOBS))
 
@@ -113,6 +114,34 @@ def load_and_process_file(file_path: Path) -> pd.DataFrame:
     return df
 
 @st.cache_data
+def get_position_averages_cached(positions: tuple, avg_df_pos_filtered: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    numeric_cols = avg_df_pos_filtered.select_dtypes(include=["number"]).columns.tolist()
+    base_cols = [c for c in ["Player", "Team"] if c in avg_df_pos_filtered.columns]
+    use_cols = base_cols + numeric_cols
+
+    if not numeric_cols:
+        return pd.Series(dtype='float64'), pd.Series(dtype='float64')
+
+    pl_df = pl.from_pandas(avg_df_pos_filtered[use_cols])
+
+    per_player = pl_df.group_by("Player").agg([pl.col(c).mean().alias(c) for c in numeric_cols])
+    lg_avg_row = per_player.select([pl.col(c).mean().alias(c) for c in numeric_cols]).to_pandas().iloc[0]
+    lg_avg = pd.Series(lg_avg_row, index=numeric_cols, dtype="float64")
+
+    if "Team" in pl_df.columns:
+        top_pl = pl_df.filter(pl.col("Team").is_in(TOP_CLUBS))
+    else:
+        top_pl = pl.DataFrame()
+    if top_pl.is_empty():
+        tp_avg = pd.Series(dtype='float64')
+    else:
+        per_player_tp = top_pl.group_by("Player").agg([pl.col(c).mean().alias(c) for c in numeric_cols])
+        tp_avg_row = per_player_tp.select([pl.col(c).mean().alias(c) for c in numeric_cols]).to_pandas().iloc[0]
+        tp_avg = pd.Series(tp_avg_row, index=numeric_cols, dtype="float64")
+
+    return lg_avg, tp_avg
+
+@st.cache_data
 def get_logic_definition() -> dict:
     with open(LOGIC_JSON, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -128,7 +157,7 @@ def load_all_player_data() -> pd.DataFrame:
         df_local['League'] = fp.stem
         return df_local
     # Čtení souborů je I/O bound -> vždy použij vlákna, je to rychlejší a bez overheadu procesů
-    all_player_dfs = Parallel(n_jobs=min(AVAILABLE_JOBS, 8), backend="threading")(delayed(_load_one)(fp) for fp in files)
+    all_player_dfs = Parallel(n_jobs=AVAILABLE_JOBS, backend="threading")(delayed(_load_one)(fp) for fp in files)
     if not all_player_dfs:
         return pd.DataFrame()
     combined_df = pd.concat(all_player_dfs, ignore_index=True)
@@ -136,7 +165,6 @@ def load_all_player_data() -> pd.DataFrame:
 
 
 def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame, override_position: str | None = None) -> Dict[str, Any]:
-    gemini_model, gemini_available = initialize_gemini()
     logic_data = get_logic_definition()
     
     player_rows = player_df[player_df["Player"] == player_name]
@@ -151,13 +179,8 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
         st.warning(f"Pro pozice '{', '.join(positions_to_filter)}' nebyla nalezena žádná srovnávací data.")
         avg_df_pos_filtered = avg_df
 
-    lg_avg = avg_df_pos_filtered.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
-    
-    top_clubs_df = avg_df_pos_filtered[avg_df_pos_filtered["Team"].isin(TOP_CLUBS)]
-    if top_clubs_df.empty:
-        tp_avg = pd.Series(dtype='float64')
-    else:
-        tp_avg = top_clubs_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
+    # Získej cachované průměry pro danou pozici
+    lg_avg, tp_avg = get_position_averages_cached(tuple(positions_to_filter), avg_df_pos_filtered)
 
     rat_lg = rating_series(p_avg, lg_avg)
     rat_tp = rating_series(p_avg, tp_avg)
@@ -165,14 +188,14 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
     logic_df = logic_flat_df([main_position], logic_data)
     logic_metrics_in_data = [m for m in logic_df["Metric"] if m in rat_lg.index]
 
-    score_lg, score_tp = Parallel(n_jobs=min(AVAILABLE_JOBS, 4), backend=JOBLIB_BACKEND)(
+    score_lg, score_tp = Parallel(n_jobs=AVAILABLE_JOBS, backend=JOBLIB_BACKEND)(
         [
             delayed(weighted_score)(rat_lg[logic_metrics_in_data], logic_df),
             delayed(weighted_score)(rat_tp[logic_metrics_in_data], logic_df),
         ]
     )
 
-    (sec_lg, sub_lg), (sec_tp, sub_tp) = Parallel(n_jobs=min(AVAILABLE_JOBS, 4), backend=JOBLIB_BACKEND)(
+    (sec_lg, sub_lg), (sec_tp, sub_tp) = Parallel(n_jobs=AVAILABLE_JOBS, backend=JOBLIB_BACKEND)(
         [
             delayed(breakdown_scores)(rat_lg, main_position, logic_data),
             delayed(breakdown_scores)(rat_tp, main_position, logic_data),
@@ -211,17 +234,6 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
     rows = Parallel(n_jobs=AVAILABLE_JOBS, backend=JOBLIB_BACKEND)(delayed(_build_metric_row)(m) for m in sorted(metrics_to_display))
     all_metrics_tbl = pd.DataFrame(rows)
     
-    analysis_text = "AI analýza není dostupná."
-    if gemini_available and gemini_model:
-        try:
-            prompt = build_prompt(player_name, [main_position], sec_tbl, sub_tbl, all_metrics_tbl)
-            msg = Content(role="user", parts=[Part.from_text(prompt)])
-            config = GenerationConfig(max_output_tokens=10000, temperature=0.5, top_k=30)
-            response = gemini_model.generate_content([msg], generation_config=config)
-            analysis_text = response.text
-        except Exception as e:
-            analysis_text = f"Došlo k chybě při generování AI analýzy: {e}"
-
     player_row = player_rows.iloc[0]
     player_club = player_row.get("Team", "N/A")
     logo_path = LOGO_DIR / f"{player_club}.png"
@@ -244,8 +256,7 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
         "score_lg": score_lg, "score_tp": score_tp,
         "sec_tbl": sec_tbl, "sub_tbl": sub_tbl,
         "all_metrics": all_metrics_tbl,
-        "analysis": analysis_text,
-        "gemini_available": gemini_available,
+        "main_position": main_position,
     }
 
 # Ostatní funkce zůstávají beze změny...
@@ -385,6 +396,20 @@ def run_ai_scout(user_needs: str) -> str:
     except Exception as e:
         return f"Došlo k chybě při komunikaci s Gemini AI: {e}"
     
+
+def generate_ai_analysis(player_name: str, sec_tbl: pd.DataFrame, sub_tbl: pd.DataFrame, all_metrics_tbl: pd.DataFrame, positions: list[str]) -> str:
+    model, available = initialize_gemini()
+    if not available or model is None:
+        return "AI analýza není dostupná (Gemini neinicializováno)."
+    try:
+        prompt = build_prompt(player_name, positions, sec_tbl, sub_tbl, all_metrics_tbl)
+        msg = Content(role="user", parts=[Part.from_text(prompt)])
+        config = GenerationConfig(max_output_tokens=10000, temperature=0.5, top_k=30)
+        response = model.generate_content([msg], generation_config=config)
+        return response.text
+    except Exception as e:
+        return f"Došlo k chybě při generování AI analýzy: {e}"
+
 
 def get_custom_comparison(player_series: pd.Series, main_position: str, custom_positions: list, all_avg_df: pd.DataFrame) -> Dict[str, Any]:
     if not custom_positions:
