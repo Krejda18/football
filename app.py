@@ -10,6 +10,7 @@ from player_analysis import (
     get_custom_comparison, get_player_comparison_data, analyze_head_to_head,
     AVG_DATA_DIR, MIN_MINUTES, COL_POS, DATA_DIR
 )
+from st_aggrid import GridUpdateMode
 
 # --- Hlavní APLIKACE s navigací ---
 st.set_page_config(page_title="Skautingový report", page_icon="logo.png", layout="wide")
@@ -26,8 +27,8 @@ app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hr
 st.markdown(
     """
     <style>
-    [data-testid="stSidebar"][aria-expanded="true"] { min-width: 200px; max-width: 200px; }
-    [data-testid="stSidebar"][aria-expanded="false"] { min-width: 220px; max-width: 220px; margin-left: -220px; }
+    [data-testid="stSidebar"][aria-expanded="true"] { min-width: 220px; max-width: 220px; }
+    [data-testid="stSidebar"][aria-expanded="false"] { min-width: 240px; max-width: 240px; margin-left: -240px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -126,16 +127,37 @@ def page_single_player_view():
 
     col1, col2 = st.columns(2)
     with col1:
-        selected_league_name = st.selectbox("Vyber soutěž", options=league_files.keys())
+        selected_league_name = st.selectbox(
+            "Vyber soutěž",
+            options=[None] + list(league_files.keys()),
+            index=0,
+            format_func=lambda x: x if x is not None else "— vyberte —",
+            key="detail_league_select",
+        )
 
-    player_df = load_and_process_file(league_files[selected_league_name])
-    player_df_filtered = player_df[player_df["Minutes played"] >= MIN_MINUTES]
-    players_list = sorted(player_df_filtered["Player"].dropna().unique())
+    # Připrav kontext hráčů až po výběru soutěže
+    player_df_filtered = None
+    players_list = []
+    if selected_league_name:
+        player_df = load_and_process_file(league_files[selected_league_name])
+        player_df_filtered = player_df[player_df["Minutes played"] >= MIN_MINUTES]
+        players_list = sorted(player_df_filtered["Player"].dropna().unique())
 
     with col2:
-        selected_player = st.selectbox("Vyber hráče", options=players_list)
+        if selected_league_name:
+            selected_player = st.selectbox(
+                "Vyber hráče",
+                options=[None] + players_list,
+                index=0,
+                format_func=lambda x: x if x is not None else "— vyberte —",
+                key="detail_player_select",
+            )
+        else:
+            st.info("Nejprve vyberte soutěž.")
+            selected_player = None
 
-    if selected_player and avg_df_filtered is not None:
+    # Spusť výpočty až pokud je zvolená soutěž i hráč
+    if selected_league_name and selected_player and (player_df_filtered is not None):
         result = analyze_player(selected_player, player_df_filtered, avg_df_filtered)
 
         st.markdown(result["full_header_block"], unsafe_allow_html=True)
@@ -188,17 +210,26 @@ def page_single_player_view():
                 st.error(custom_result["error"])
             else:
                 st.markdown(f"<h4 style='text-align: center;'>Rating vs. Vlastní výběr ({', '.join(selected_positions)})</h4>", unsafe_allow_html=True)
-                score_custom = custom_result.get("score", 0)
-                st.markdown(
-                    f"<div style='font-size:29px; text-align:center; color:{rating_text_color(score_custom)};'><b>{score_custom:.0f} %</b></div>",
-                    unsafe_allow_html=True,
-                )
+                score_custom_lg = custom_result.get("score_lg", 0)
+                score_custom_tp = custom_result.get("score_tp", 0)
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown(
+                        f"<div style='font-size:29px; text-align:center;'>Vs. Liga<br><span style='color:{rating_text_color(score_custom_lg)};'><b>{score_custom_lg:.0f} %</b></span></div>",
+                        unsafe_allow_html=True,
+                    )
+                with c2:
+                    st.markdown(
+                        f"<div style='font-size:29px; text-align:center;'>Vs. TOP Kluby<br><span style='color:{rating_text_color(score_custom_tp)};'><b>{score_custom_tp:.0f} %</b></span></div>",
+                        unsafe_allow_html=True,
+                    )
 
                 st.markdown("<h5 style='text-align: center;'>Sekce</h5>", unsafe_allow_html=True)
                 styler_sec_custom = (
                     custom_result["sec_tbl"].style
-                    .format("{:.0f}", subset=["vs. Vlastní výběr"])
-                    .applymap(background_cells)
+                    .format("{:.0f}", subset=["vs. Vlastní výběr", "vs. Vlastní TOP 3"])
+                    .applymap(background_cells, subset=["vs. Vlastní výběr", "vs. Vlastní TOP 3"])
                     .set_table_styles(table_style_detail_view)
                     .hide(axis="index")
                 )
@@ -208,8 +239,8 @@ def page_single_player_view():
                 sub_tbl_custom_processed = process_dataframe_for_display(custom_result["sub_tbl"])
                 styler_sub_custom = (
                     sub_tbl_custom_processed.style
-                    .format("{:.0f}", subset=["vs. Vlastní výběr"])
-                    .applymap(background_cells)
+                    .format("{:.0f}", subset=["vs. Vlastní výběr", "vs. Vlastní TOP 3"])
+                    .applymap(background_cells, subset=["vs. Vlastní výběr", "vs. Vlastní TOP 3"])
                     .set_table_styles(table_style_detail_view_sub)
                     .hide(axis="index")
                 )
@@ -273,6 +304,7 @@ def page_player_comparison():
 
     st.markdown("#### Filtry")
     positions = ["Všechny pozice"] + sorted(ratings_df['Position'].unique().tolist())
+    leagues_all = sorted(ratings_df['League'].dropna().unique().tolist())
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -280,12 +312,62 @@ def page_player_comparison():
         player_search = st.text_input("Vyhledat hráče:")
     with col2:
         min_age, max_age = int(ratings_df['Age'].min()), int(ratings_df['Age'].max())
-        age_range = st.slider("Filtrovat věk:", min_age, max_age, (min_age, max_age))
+        # Výchozí věkový filtr: pod 22 let
+        default_age_max = min(21, max_age)
+        age_range = st.slider("Filtrovat věk:", min_age, max_age, (min_age, default_age_max))
         min_height, max_height = int(ratings_df['Height'].min()), int(ratings_df['Height'].max())
         height_range = st.slider("Filtrovat výšku (cm):", min_height, max_height, (min_height, max_height))
     with col3:
         min_rating, max_rating = int(ratings_df['Rating vs Liga'].dropna().min()), int(ratings_df['Rating vs Liga'].dropna().max())
         rating_range = st.slider("Filtrovat Rating vs Liga:", min_rating, max_rating, (min_rating, max_rating))
+        # Kompaktní výběr soutěží v popoveru, aby se nezahltil layout
+        ss = st.session_state
+        ss.setdefault("cmp_league_filter", leagues_all)
+        # Odvoď ročníky z názvů soutěží (část za posledním podtržítkem)
+        def season_of(name: str) -> str:
+            if not isinstance(name, str) or "_" not in name:
+                return "ostatní"
+            return name.split("_")[-1]
+        seasons_all = sorted({season_of(l) for l in leagues_all})
+        default_seasons = [s for s in ["25-26", "2025"] if s in seasons_all]
+        ss.setdefault("cmp_league_seasons", default_seasons if default_seasons else seasons_all)
+        pop = st.popover("Soutěž", use_container_width=True)
+        with pop:
+            st.markdown("**Ročníky:**")
+            cols_season = st.columns([1,1,3])
+            with cols_season[0]:
+                if st.button("Všechny ročníky"):
+                    ss["cmp_league_seasons"] = seasons_all
+            with cols_season[1]:
+                if st.button("Vyčistit ročníky"):
+                    ss["cmp_league_seasons"] = []
+            ss["cmp_league_seasons"] = st.multiselect(
+                "",
+                options=seasons_all,
+                default=[s for s in ss["cmp_league_seasons"] if s in seasons_all],
+                key="cmp_league_seasons_ms"
+            )
+            search_lg = st.text_input("Hledat soutěž:", placeholder="např. Czechia nebo 24-25")
+            if st.button("Vybrat vše"):
+                ss["cmp_league_filter"] = leagues_all
+            if st.button("Vyčistit"):
+                ss["cmp_league_filter"] = []
+            # Omez nabídku dle ročníku a vyhledávání
+            if ss.get("cmp_league_seasons"):
+                base = [l for l in leagues_all if season_of(l) in ss["cmp_league_seasons"]]
+            else:
+                base = leagues_all
+            if search_lg:
+                opt = [l for l in base if search_lg.lower() in l.lower()]
+            else:
+                opt = base
+            ss["cmp_league_filter"] = st.multiselect(
+                "Vyber soutěže:",
+                options=opt,
+                default=[l for l in ss["cmp_league_filter"] if l in opt],
+                key="cmp_league_filter_ms"
+            )
+        st.caption(f"Ročníky: {len(ss.get('cmp_league_seasons', []))}/{len(seasons_all)} • Soutěže: {len(ss['cmp_league_filter'])}/{len(leagues_all)}")
 
     st.markdown("---")
     max_val = int(ratings_df['Market value'].fillna(0).max())
@@ -311,7 +393,9 @@ def page_player_comparison():
         filtered_df = filtered_df[filtered_df['Position'] == selected_pos]
     if player_search:
         filtered_df = filtered_df[filtered_df['Player'].str.contains(player_search, case=False, na=False)]
-
+    if 'cmp_league_filter' in st.session_state and st.session_state['cmp_league_filter']:
+        filtered_df = filtered_df[filtered_df['League'].isin(st.session_state['cmp_league_filter'])]
+    
     filtered_df = filtered_df[
         (filtered_df['Age'] >= age_range[0]) & (filtered_df['Age'] <= age_range[1]) &
         (filtered_df['Height'] >= height_range[0]) & (filtered_df['Height'] <= height_range[1]) &
@@ -432,9 +516,23 @@ def page_player_comparison():
     gb.configure_column("Rating vs Liga", cellRenderer=bar_chart_renderer, width=150, filter=False)
     gb.configure_column("Rating vs TOP Kluby", cellRenderer=bar_chart_renderer, width=180, filter=False)
 
+    # Obnova uloženého stavu filtrů/sortů, pokud existuje
+    ss = st.session_state
+    saved_state = ss.get("cmp_grid_state")
+    if saved_state and isinstance(saved_state, dict):
+        try:
+            gb.configure_grid_options(columnState=saved_state.get("columns_state"))
+        except Exception:
+            pass
+    else:
+        # Výchozí řazení: nejlepší nahoře podle "Rating vs Liga"
+        try:
+            gb.configure_column("Rating vs Liga", sort='desc', sortIndex=0)
+        except Exception:
+            pass
     gridOptions = gb.build()
 
-    AgGrid(
+    grid_response = AgGrid(
         df_for_grid,
         gridOptions=gridOptions,
         height=900,
@@ -444,7 +542,13 @@ def page_player_comparison():
         allow_unsafe_jscode=True,
         enable_enterprise_modules=True,
         custom_css=custom_css,
+        update_mode=GridUpdateMode.MODEL_CHANGED,
+        key="comparison_aggrid",
     )
+
+    # Ulož stav sloupců/filtrů, pokud ho komponenta vrátí
+    if isinstance(grid_response, dict) and "grid_state" in grid_response:
+        ss["cmp_grid_state"] = grid_response["grid_state"]
 
 # =============================
 # Pohled: AI Skaut
@@ -482,17 +586,59 @@ def page_player_vs_player():
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
 
+    # Helper: extrahuj token sezóny z názvu soutěže (např. "Czechia_23-24" -> "23-24")
+    def extract_season_token(league_name: str) -> str | None:
+        if not isinstance(league_name, str):
+            return None
+        # Hledej vzory jako 23-24, 2023-24, 23_24, 2023/24
+        import re
+        patterns = [
+            r"(\b\d{2}[-_/]\d{2}\b)",      # 23-24 nebo 23/24
+            r"(\b\d{4}[-_/]\d{2}\b)",     # 2023-24
+            r"(\b\d{2}[-_/]\d{4}\b)",     # 23-2024
+        ]
+        for p in patterns:
+            m = re.search(p, league_name)
+            if m:
+                return m.group(1).replace('_', '-')
+        return None
+
     all_positions = sorted(all_players_df[COL_POS].dropna().unique().tolist())
     selected_pos = st.selectbox("1. Vyberte pozici pro srovnání:", options=all_positions)
     if not selected_pos:
         return
 
     players_on_pos = sorted(all_players_df[all_players_df[COL_POS] == selected_pos]['Player'].unique().tolist())
+
     col1, col2 = st.columns(2)
     with col1:
         player1 = st.selectbox("2. Vyberte prvního hráče:", options=[None] + players_on_pos, index=0, key="h2h_p1")
+        if player1:
+            leagues_p1 = all_players_df.loc[all_players_df['Player'] == player1, 'League'].dropna().unique().tolist()
+            seasons_p1 = sorted({extract_season_token(l) or l for l in leagues_p1})
+            season1 = st.selectbox(
+                "Sezóna hráče 1:",
+                options=[None] + seasons_p1,
+                index=0,
+                format_func=lambda x: x if x is not None else "— všechny —",
+                key="h2h_season_p1",
+            )
+        else:
+            season1 = None
     with col2:
         player2 = st.selectbox("3. Vyberte druhého hráče:", options=[None] + players_on_pos, index=0, key="h2h_p2")
+        if player2:
+            leagues_p2 = all_players_df.loc[all_players_df['Player'] == player2, 'League'].dropna().unique().tolist()
+            seasons_p2 = sorted({extract_season_token(l) or l for l in leagues_p2})
+            season2 = st.selectbox(
+                "Sezóna hráče 2:",
+                options=[None] + seasons_p2,
+                index=0,
+                format_func=lambda x: x if x is not None else "— všechny —",
+                key="h2h_season_p2",
+            )
+        else:
+            season2 = None
 
     ss = st.session_state
     ss.setdefault("h2h_compared", False)
@@ -506,8 +652,20 @@ def page_player_vs_player():
         elif player1 == player2:
             st.warning("Prosím, vyberte dva různé hráče.")
         else:
+            df_h2h = all_players_df.copy()
+
+            # Pokud je vybraná sezóna, filtruj řádky daného hráče na soutěže obsahující token sezóny
+            def filter_by_season(df: pd.DataFrame, player: str, season_sel: str | None) -> pd.DataFrame:
+                if not season_sel:
+                    return df
+                token = season_sel
+                return df[~((df['Player'] == player) & (~df['League'].astype(str).str.contains(token, na=False)))]
+
+            df_h2h = filter_by_season(df_h2h, player1, extract_season_token(season1) if season1 else None)
+            df_h2h = filter_by_season(df_h2h, player2, extract_season_token(season2) if season2 else None)
+
             with st.spinner(f"Porovnávám hráče {player1} a {player2}..."):
-                comp = get_player_comparison_data(player1, player2, all_players_df, avg_df_filtered)
+                comp = get_player_comparison_data(player1, player2, df_h2h, avg_df_filtered)
 
             ss.h2h_compared = True
             ss.h2h_pair = (player1, player2)
@@ -636,7 +794,7 @@ if app_mode == "Detail hráče":
     page_single_player_view()
 elif app_mode == "Srovnání hráčů":
     page_player_comparison()
-elif app_mode == "AI Skaut BETA":
+elif app_mode == "AI Skaut":
     page_ai_scout()
 elif app_mode == "Hráč vs. Hráč":
     page_player_vs_player()

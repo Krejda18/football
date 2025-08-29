@@ -5,6 +5,7 @@ import json
 import datetime
 from pathlib import Path
 from typing import Dict, Any, List
+from joblib import Parallel, delayed
 
 from google.oauth2 import service_account
 import vertexai
@@ -114,24 +115,28 @@ def get_logic_definition() -> dict:
 @st.cache_data
 def load_all_player_data() -> pd.DataFrame:
     all_player_dfs = []
-    # <<< ZMĚNA ZDE: Hledáme soubory s koncovkou .parquet >>>
-    for file_path in sorted(Path(DATA_DIR).glob("*.parquet")):
-        df = load_and_process_file(file_path)
-        df['League'] = file_path.stem
-        all_player_dfs.append(df)
+    files = sorted(Path(DATA_DIR).glob("*.parquet"))
+    if not files:
+        return pd.DataFrame()
+    def _load_one(fp: Path) -> pd.DataFrame:
+        df_local = load_and_process_file(fp)
+        df_local['League'] = fp.stem
+        return df_local
+    all_player_dfs = Parallel(n_jobs=-1, backend="threading")(delayed(_load_one)(fp) for fp in files)
     if not all_player_dfs:
         return pd.DataFrame()
     combined_df = pd.concat(all_player_dfs, ignore_index=True)
     return combined_df[combined_df["Minutes played"] >= MIN_MINUTES]
 
 
-def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame) -> Dict[str, Any]:
+def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame, override_position: str | None = None) -> Dict[str, Any]:
     gemini_model, gemini_available = initialize_gemini()
     logic_data = get_logic_definition()
     
     player_rows = player_df[player_df["Player"] == player_name]
     p_avg = player_rows.mean(numeric_only=True)
-    main_position = player_rows[COL_POS].iloc[0]
+    detected_position = player_rows[COL_POS].iloc[0]
+    main_position = override_position if override_position else detected_position
 
     positions_to_filter = get_positions_for_avg_filter(main_position)
     avg_df_pos_filtered = avg_df[avg_df[COL_POS].isin(positions_to_filter)]
@@ -177,18 +182,19 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
         and m not in EXCLUDE_FROM_ALL_METRICS
     ]
 
-    rows = []
-    for m in sorted(metrics_to_display):
+    def _build_metric_row(m: str) -> dict:
         val_lg = (p_avg.get(m, 0) / lg_avg.get(m, 0) * 100) if lg_avg.get(m, 0) != 0 else pd.NA
         val_tp = (p_avg.get(m, 0) / tp_avg.get(m, 0) * 100) if tp_avg.get(m, 0) != 0 else pd.NA
-        rows.append({
+        return {
             "Metric": m,
             "Hráč": p_avg.get(m),
             "Liga Ø": lg_avg.get(m),
             "TOP Kluby Ø": tp_avg.get(m, pd.NA),
             "vs. League": val_lg,
             "vs. TOP 3": val_tp
-        })
+        }
+
+    rows = Parallel(n_jobs=-1, backend="threading")(delayed(_build_metric_row)(m) for m in sorted(metrics_to_display))
     all_metrics_tbl = pd.DataFrame(rows)
     
     analysis_text = "AI analýza není dostupná."
@@ -245,23 +251,32 @@ def calculate_all_player_metrics_and_ratings(all_players_df: pd.DataFrame, all_a
             tp_avg = pd.Series(dtype='float64') if top_clubs_df.empty else top_clubs_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
             avg_calcs[pos] = {'lg': lg_avg, 'tp': tp_avg}
     
-    for _, player_row in all_players_df.iterrows():
-        main_position = player_row[COL_POS]
-        if main_position in avg_calcs:
-            p_avg, lg_avg, tp_avg = player_row, avg_calcs[main_position]['lg'], avg_calcs[main_position]['tp']
-            rat_lg, rat_tp = rating_series(p_avg, lg_avg), rating_series(p_avg, tp_avg)
-            logic_df = logic_flat_df([main_position], logic_data)
-            logic_metrics_in_data = [m for m in logic_df["Metric"] if m in rat_lg.index]
-            score_lg, score_tp = weighted_score(rat_lg[logic_metrics_in_data], logic_df), weighted_score(rat_tp[logic_metrics_in_data], logic_df)
-            results.append({
-                'Player': player_row['Player'], 'Team': player_row['Team'],
-                'League': player_row['League'], 'Position': main_position,
-                'Age': player_row['Age'], 'Height': player_row['Height'],
-                'Market value': player_row.get('Market value'),
-                'Foot': player_row.get('Foot'),
-                'Minutes': player_row['Minutes played'],
-                'Rating vs Liga': score_lg, 'Rating vs TOP Kluby': score_tp
-            })
+    def _compute_row(record: dict) -> dict | None:
+        main_position_local = record.get(COL_POS)
+        if main_position_local not in avg_calcs:
+            return None
+        p_avg_local = pd.Series(record)
+        lg_avg_local = avg_calcs[main_position_local]['lg']
+        tp_avg_local = avg_calcs[main_position_local]['tp']
+        rat_lg_local = rating_series(p_avg_local, lg_avg_local)
+        rat_tp_local = rating_series(p_avg_local, tp_avg_local)
+        logic_df_local = logic_flat_df([main_position_local], logic_data)
+        logic_metrics_in_data_local = [m for m in logic_df_local["Metric"] if m in rat_lg_local.index]
+        score_lg_local = weighted_score(rat_lg_local[logic_metrics_in_data_local], logic_df_local)
+        score_tp_local = weighted_score(rat_tp_local[logic_metrics_in_data_local], logic_df_local)
+        return {
+            'Player': record.get('Player'), 'Team': record.get('Team'),
+            'League': record.get('League'), 'Position': main_position_local,
+            'Age': record.get('Age'), 'Height': record.get('Height'),
+            'Market value': record.get('Market value'),
+            'Foot': record.get('Foot'),
+            'Minutes': record.get('Minutes played'),
+            'Rating vs Liga': score_lg_local, 'Rating vs TOP Kluby': score_tp_local
+        }
+
+    records = all_players_df.to_dict('records')
+    results = Parallel(n_jobs=-1, backend="threading")(delayed(_compute_row)(rec) for rec in records)
+    results = [r for r in results if r is not None]
     
     final_df = pd.DataFrame(results)
     rating_cols = ['Rating vs Liga', 'Rating vs TOP Kluby']
@@ -283,23 +298,31 @@ def enrich_data_for_ai_scout(all_players_df: pd.DataFrame, all_avg_df: pd.DataFr
             top_clubs_df = avg_df_pos_filtered[avg_df_pos_filtered["Team"].isin(TOP_CLUBS)]
             tp_avg = pd.Series(dtype='float64') if top_clubs_df.empty else top_clubs_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
             avg_calcs[pos] = {'lg': lg_avg, 'tp': tp_avg}
-    for _, player_row in all_players_df.iterrows():
-        main_position = player_row[COL_POS]
-        if main_position in avg_calcs:
-            p_avg, lg_avg, tp_avg = player_row, avg_calcs[main_position]['lg'], avg_calcs[main_position]['tp']
-            rat_lg, rat_tp = rating_series(p_avg, lg_avg), rating_series(p_avg, tp_avg)
-            logic_df = logic_flat_df([main_position], logic_data)
-            logic_metrics_in_data = [m for m in logic_df["Metric"] if m in rat_lg.index]
-            score_lg = weighted_score(rat_lg[logic_metrics_in_data], logic_df)
-            player_data = player_row.to_dict()
-            player_data['Rating vs Liga'] = score_lg
-            sec_lg, sub_lg = breakdown_scores(rat_lg, main_position, logic_data)
-            sec_tp, sub_tp = breakdown_scores(rat_tp, main_position, logic_data)
-            sec_ratings = sec_lg.rename(columns={"Score": "lg"}).merge(sec_tp.rename(columns={"Score": "tp"}), on="Section", how="outer").to_dict('records')
-            sub_ratings = sub_lg.rename(columns={"Score": "lg"}).merge(sub_tp.rename(columns={"Score": "tp"}), on=["Section", "Subsection"], how="outer").to_dict('records')
-            player_data['sections'] = sec_ratings
-            player_data['subsections'] = sub_ratings
-            enriched_results.append(player_data)
+    def _enrich_row(record: dict) -> dict | None:
+        main_position_local = record.get(COL_POS)
+        if main_position_local not in avg_calcs:
+            return None
+        p_avg_local = pd.Series(record)
+        lg_avg_local = avg_calcs[main_position_local]['lg']
+        tp_avg_local = avg_calcs[main_position_local]['tp']
+        rat_lg_local = rating_series(p_avg_local, lg_avg_local)
+        rat_tp_local = rating_series(p_avg_local, tp_avg_local)
+        logic_df_local = logic_flat_df([main_position_local], logic_data)
+        logic_metrics_in_data_local = [m for m in logic_df_local["Metric"] if m in rat_lg_local.index]
+        score_lg_local = weighted_score(rat_lg_local[logic_metrics_in_data_local], logic_df_local)
+        player_data_local = dict(record)
+        player_data_local['Rating vs Liga'] = score_lg_local
+        sec_lg_local, sub_lg_local = breakdown_scores(rat_lg_local, main_position_local, logic_data)
+        sec_tp_local, sub_tp_local = breakdown_scores(rat_tp_local, main_position_local, logic_data)
+        sec_ratings_local = sec_lg_local.rename(columns={"Score": "lg"}).merge(sec_tp_local.rename(columns={"Score": "tp"}), on="Section", how="outer").to_dict('records')
+        sub_ratings_local = sub_lg_local.rename(columns={"Score": "lg"}).merge(sub_tp_local.rename(columns={"Score": "tp"}), on=["Section", "Subsection"], how="outer").to_dict('records')
+        player_data_local['sections'] = sec_ratings_local
+        player_data_local['subsections'] = sub_ratings_local
+        return player_data_local
+
+    records = all_players_df.to_dict('records')
+    enriched_results = Parallel(n_jobs=-1, backend="threading")(delayed(_enrich_row)(rec) for rec in records)
+    enriched_results = [r for r in enriched_results if r is not None]
     
     return pd.DataFrame(enriched_results)
 
@@ -355,24 +378,42 @@ def get_custom_comparison(player_series: pd.Series, main_position: str, custom_p
 
     logic_data = get_logic_definition()
     
+    # Průměry pro vybrané pozice (celá liga)
     custom_avg_df = all_avg_df[all_avg_df[COL_POS].isin(custom_positions)]
     if custom_avg_df.empty:
         return {"error": "Pro vybrané pozice nebyla nalezena žádná srovnávací data."}
-        
     custom_avg = custom_avg_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
 
+    # Průměry pro vybrané pozice omezené na TOP kluby
+    top_df = custom_avg_df[custom_avg_df["Team"].isin(TOP_CLUBS)]
+    if top_df.empty:
+        custom_top_avg = pd.Series(dtype='float64')
+    else:
+        custom_top_avg = top_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
+
+    # Výpočet ratingů
     rat_custom = rating_series(player_series, custom_avg)
+    rat_custom_top = rating_series(player_series, custom_top_avg)
+
     logic_df = logic_flat_df([main_position], logic_data)
     logic_metrics_in_data = [m for m in logic_df["Metric"] if m in rat_custom.index]
     
     score_custom = weighted_score(rat_custom[logic_metrics_in_data], logic_df)
+    score_custom_top = weighted_score(rat_custom_top[logic_metrics_in_data], logic_df)
+
     sec_custom, sub_custom = breakdown_scores(rat_custom, main_position, logic_data)
-    
-    sec_tbl = sec_custom.rename(columns={"Score": "vs. Vlastní výběr"})
-    sub_tbl = sub_custom.rename(columns={"Score": "vs. Vlastní výběr"})
+    sec_custom_top, sub_custom_top = breakdown_scores(rat_custom_top, main_position, logic_data)
+
+    sec_tbl = sec_custom.rename(columns={"Score": "vs. Vlastní výběr"}).merge(
+        sec_custom_top.rename(columns={"Score": "vs. Vlastní TOP 3"}), on="Section", how="outer"
+    )
+    sub_tbl = sub_custom.rename(columns={"Score": "vs. Vlastní výběr"}).merge(
+        sub_custom_top.rename(columns={"Score": "vs. Vlastní TOP 3"}), on=["Section", "Subsection"], how="outer"
+    )
 
     return {
-        "score": score_custom,
+        "score_lg": score_custom,
+        "score_tp": score_custom_top,
         "sec_tbl": sec_tbl,
         "sub_tbl": sub_tbl
     }
