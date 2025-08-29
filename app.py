@@ -278,11 +278,11 @@ def page_single_player_view():
         )
         render_styled_df(styler_all)
 
-        if st.checkbox("🧠 Zobrazit AI analýzu"):
-            if result["gemini_available"]:
-                st.markdown(result["analysis"])
-            else:
-                st.warning(result["analysis"])
+        if st.button("🧠 Vygenerovat AI analýzu", type="primary"):
+            with st.spinner("Generuji AI analýzu..."):
+                from player_analysis import generate_ai_analysis
+                ai_text = generate_ai_analysis(selected_player, result["sec_tbl"], result["sub_tbl"], result["all_metrics"], [result["main_position"]])
+            st.markdown(ai_text)
 
 # =============================
 # Pohled: Srovnání hráčů (AgGrid)
