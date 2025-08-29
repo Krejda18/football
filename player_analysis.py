@@ -34,7 +34,7 @@ LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
 
 # --- Paralelizace (konfigurovatelné přes ENV) ---
-JOBLIB_N_JOBS = int(os.environ.get("JOBLIB_N_JOBS", "4"))
+JOBLIB_N_JOBS = int(os.environ.get("JOBLIB_N_JOBS", "8"))
 JOBLIB_BACKEND = os.environ.get("JOBLIB_BACKEND", "loky")  # "loky"=procesy (CPU), "threading"=vlákna (I/O)
 
 # Názvy pro tajné klíče v různých prostředích
