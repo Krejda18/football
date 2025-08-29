@@ -34,8 +34,9 @@ LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
 
 # --- Paralelizace (konfigurovatelné přes ENV) ---
-JOBLIB_N_JOBS = int(os.environ.get("JOBLIB_N_JOBS", "8"))
+JOBLIB_N_JOBS = int(os.environ.get("JOBLIB_N_JOBS", "16"))
 JOBLIB_BACKEND = os.environ.get("JOBLIB_BACKEND", "loky")  # "loky"=procesy (CPU), "threading"=vlákna (I/O)
+AVAILABLE_JOBS = min(JOBLIB_N_JOBS, (os.cpu_count() or JOBLIB_N_JOBS))
 
 # Názvy pro tajné klíče v různých prostředích
 ENV_SECRET_NAME = "GCP_SA_JSON"
@@ -126,7 +127,8 @@ def load_all_player_data() -> pd.DataFrame:
         df_local = load_and_process_file(fp)
         df_local['League'] = fp.stem
         return df_local
-    all_player_dfs = Parallel(n_jobs=JOBLIB_N_JOBS, backend=JOBLIB_BACKEND)(delayed(_load_one)(fp) for fp in files)
+    # Čtení souborů je I/O bound -> vždy použij vlákna, je to rychlejší a bez overheadu procesů
+    all_player_dfs = Parallel(n_jobs=min(AVAILABLE_JOBS, 8), backend="threading")(delayed(_load_one)(fp) for fp in files)
     if not all_player_dfs:
         return pd.DataFrame()
     combined_df = pd.concat(all_player_dfs, ignore_index=True)
@@ -163,11 +165,19 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
     logic_df = logic_flat_df([main_position], logic_data)
     logic_metrics_in_data = [m for m in logic_df["Metric"] if m in rat_lg.index]
 
-    score_lg = weighted_score(rat_lg[logic_metrics_in_data], logic_df)
-    score_tp = weighted_score(rat_tp[logic_metrics_in_data], logic_df)
+    score_lg, score_tp = Parallel(n_jobs=min(AVAILABLE_JOBS, 4), backend=JOBLIB_BACKEND)(
+        [
+            delayed(weighted_score)(rat_lg[logic_metrics_in_data], logic_df),
+            delayed(weighted_score)(rat_tp[logic_metrics_in_data], logic_df),
+        ]
+    )
 
-    sec_lg, sub_lg = breakdown_scores(rat_lg, main_position, logic_data)
-    sec_tp, sub_tp = breakdown_scores(rat_tp, main_position, logic_data)
+    (sec_lg, sub_lg), (sec_tp, sub_tp) = Parallel(n_jobs=min(AVAILABLE_JOBS, 4), backend=JOBLIB_BACKEND)(
+        [
+            delayed(breakdown_scores)(rat_lg, main_position, logic_data),
+            delayed(breakdown_scores)(rat_tp, main_position, logic_data),
+        ]
+    )
     
     sec_tbl = sec_lg.rename(columns={"Score": "vs. League"}).merge(sec_tp.rename(columns={"Score": "vs. TOP 3"}), on="Section", how="outer")
     sub_tbl = sub_lg.rename(columns={"Score": "vs. League"}).merge(sub_tp.rename(columns={"Score": "vs. TOP 3"}), on=["Section", "Subsection"], how="outer")
@@ -198,7 +208,7 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
             "vs. TOP 3": val_tp
         }
 
-    rows = Parallel(n_jobs=JOBLIB_N_JOBS, backend=JOBLIB_BACKEND)(delayed(_build_metric_row)(m) for m in sorted(metrics_to_display))
+    rows = Parallel(n_jobs=AVAILABLE_JOBS, backend=JOBLIB_BACKEND)(delayed(_build_metric_row)(m) for m in sorted(metrics_to_display))
     all_metrics_tbl = pd.DataFrame(rows)
     
     analysis_text = "AI analýza není dostupná."
@@ -279,7 +289,7 @@ def calculate_all_player_metrics_and_ratings(all_players_df: pd.DataFrame, all_a
         }
 
     records = all_players_df.to_dict('records')
-    results = Parallel(n_jobs=JOBLIB_N_JOBS, backend=JOBLIB_BACKEND)(delayed(_compute_row)(rec) for rec in records)
+    results = Parallel(n_jobs=AVAILABLE_JOBS, backend=JOBLIB_BACKEND)(delayed(_compute_row)(rec) for rec in records)
     results = [r for r in results if r is not None]
     
     final_df = pd.DataFrame(results)
@@ -325,7 +335,7 @@ def enrich_data_for_ai_scout(all_players_df: pd.DataFrame, all_avg_df: pd.DataFr
         return player_data_local
 
     records = all_players_df.to_dict('records')
-    enriched_results = Parallel(n_jobs=JOBLIB_N_JOBS, backend=JOBLIB_BACKEND)(delayed(_enrich_row)(rec) for rec in records)
+    enriched_results = Parallel(n_jobs=AVAILABLE_JOBS, backend=JOBLIB_BACKEND)(delayed(_enrich_row)(rec) for rec in records)
     enriched_results = [r for r in enriched_results if r is not None]
     
     return pd.DataFrame(enriched_results)
