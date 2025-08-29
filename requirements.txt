@@ -8,3 +8,4 @@ reportlab
 matplotlib
 streamlit-authenticator
 gunicorn
+joblib
