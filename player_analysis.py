@@ -33,6 +33,10 @@ PROJECT_ID = "inside-data-story"
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
 
+# --- Paralelizace (konfigurovatelné přes ENV) ---
+JOBLIB_N_JOBS = int(os.environ.get("JOBLIB_N_JOBS", "4"))
+JOBLIB_BACKEND = os.environ.get("JOBLIB_BACKEND", "loky")  # "loky"=procesy (CPU), "threading"=vlákna (I/O)
+
 # Názvy pro tajné klíče v různých prostředích
 ENV_SECRET_NAME = "GCP_SA_JSON"
 STREAMLIT_SECRET_NAME = "gcp_service_account"
@@ -122,7 +126,7 @@ def load_all_player_data() -> pd.DataFrame:
         df_local = load_and_process_file(fp)
         df_local['League'] = fp.stem
         return df_local
-    all_player_dfs = Parallel(n_jobs=-1, backend="threading")(delayed(_load_one)(fp) for fp in files)
+    all_player_dfs = Parallel(n_jobs=JOBLIB_N_JOBS, backend=JOBLIB_BACKEND)(delayed(_load_one)(fp) for fp in files)
     if not all_player_dfs:
         return pd.DataFrame()
     combined_df = pd.concat(all_player_dfs, ignore_index=True)
@@ -194,7 +198,7 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
             "vs. TOP 3": val_tp
         }
 
-    rows = Parallel(n_jobs=-1, backend="threading")(delayed(_build_metric_row)(m) for m in sorted(metrics_to_display))
+    rows = Parallel(n_jobs=JOBLIB_N_JOBS, backend=JOBLIB_BACKEND)(delayed(_build_metric_row)(m) for m in sorted(metrics_to_display))
     all_metrics_tbl = pd.DataFrame(rows)
     
     analysis_text = "AI analýza není dostupná."
@@ -275,7 +279,7 @@ def calculate_all_player_metrics_and_ratings(all_players_df: pd.DataFrame, all_a
         }
 
     records = all_players_df.to_dict('records')
-    results = Parallel(n_jobs=-1, backend="threading")(delayed(_compute_row)(rec) for rec in records)
+    results = Parallel(n_jobs=JOBLIB_N_JOBS, backend=JOBLIB_BACKEND)(delayed(_compute_row)(rec) for rec in records)
     results = [r for r in results if r is not None]
     
     final_df = pd.DataFrame(results)
@@ -321,7 +325,7 @@ def enrich_data_for_ai_scout(all_players_df: pd.DataFrame, all_avg_df: pd.DataFr
         return player_data_local
 
     records = all_players_df.to_dict('records')
-    enriched_results = Parallel(n_jobs=-1, backend="threading")(delayed(_enrich_row)(rec) for rec in records)
+    enriched_results = Parallel(n_jobs=JOBLIB_N_JOBS, backend=JOBLIB_BACKEND)(delayed(_enrich_row)(rec) for rec in records)
     enriched_results = [r for r in enriched_results if r is not None]
     
     return pd.DataFrame(enriched_results)
