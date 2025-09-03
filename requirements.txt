@@ -8,5 +8,5 @@ reportlab
 matplotlib
 streamlit-authenticator
 gunicorn
+pyarrow
 joblib
-polars
