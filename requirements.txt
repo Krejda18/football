@@ -10,3 +10,4 @@ streamlit-authenticator
 gunicorn
 pyarrow
 joblib
+polars
