@@ -12,9 +12,25 @@ def get_positions_for_avg_filter(main_position: str) -> list[str]:
     
     if main_position in ["DR", "DL"]:
         return ["DR", "DL"]
-    if main_position in ["AMR", "AML"]:
+    # Podpora sloučené kategorie křídel ARML (RW/LW/RAMF/LAMF apod.)
+    if main_position == "ARML" or main_position in ["AMR", "AML"]:
         return ["AMR", "AML"]
     return [main_position]
+
+def _map_position(pos: str, keys: list) -> str or None:
+    p = pos.upper()
+    if p in keys:
+        return p
+    mapping = {
+        ("AMR", "AML"): "ARML",
+        ("DL", "DR"): "DR",
+        ("ST", "CF", "FW"): "FC"
+    }
+    for aliases, target_key in mapping.items():
+        if p in aliases and target_key in keys:
+            return target_key
+    return None
+
 
 def compute_loose_ball_duels(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -50,19 +66,7 @@ def weighted_score(rats: pd.Series, w_df: pd.DataFrame) -> float:
         return float((m["R"] * m["Weight"]).sum() / m["Weight"].sum())
     return float("nan")
 
-def _map_position(pos: str, keys: list) -> str or None:
-    p = pos.upper()
-    if p in keys:
-        return p
-    mapping = {
-        ("AMR", "AML"): "ARML",
-        ("DL", "DR"): "DR",
-        ("ST", "CF", "FW"): "FC"
-    }
-    for aliases, target_key in mapping.items():
-        if p in aliases and target_key in keys:
-            return target_key
-    return None
+
 
 def logic_flat_df(positions: list, logic_data: dict) -> pd.DataFrame:
     recs = []
