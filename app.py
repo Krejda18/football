@@ -10,8 +10,6 @@ from player_analysis import (
     get_custom_comparison, get_player_comparison_data, analyze_head_to_head,
     AVG_DATA_DIR, MIN_MINUTES, COL_POS, DATA_DIR
 )
-import sys
-import os
 from st_aggrid import GridUpdateMode
 
 # --- Hlavní APLIKACE s navigací ---
@@ -23,7 +21,7 @@ with right_col:
     st.image("logo.png", width=500)
 
 st.sidebar.title("Navigace")
-app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče", "AI Skaut", "Hráč vs. Hráč", "PDF Report"])
+app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče", "AI Skaut", "Hráč vs. Hráč"])
 
 # --- Zúžení sidebaru ---
 st.markdown(
@@ -31,10 +29,6 @@ st.markdown(
     <style>
     [data-testid="stSidebar"][aria-expanded="true"] { min-width: 220px; max-width: 220px; }
     [data-testid="stSidebar"][aria-expanded="false"] { min-width: 240px; max-width: 240px; margin-left: -240px; }
-    @media print {
-        /* Skryj header, sidebar a toolbar ve tisku */
-        header, footer, [data-testid="stSidebar"], [data-testid="stToolbar"], .no-print { display: none !important; }
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -87,15 +81,7 @@ def background_cells(val):
 
 def render_styled_df(df_styler):
     html = df_styler.to_html(na_rep="")
-    # Obleč tabulku do kontejneru, který ji zarovná na střed (bez úvodních mezer, aby se netvořil code-block)
-    wrapped = (
-        "<div style='display:flex; justify-content:center;'>"
-        + "<div style='min-width:60%; max-width:1200px;'>"
-        + html
-        + "</div>"
-        + "</div>"
-    )
-    st.markdown(wrapped, unsafe_allow_html=True)
+    st.write(html, unsafe_allow_html=True)
 
 
 def process_dataframe_for_display(df: pd.DataFrame) -> pd.DataFrame:
@@ -139,8 +125,6 @@ def page_single_player_view():
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
 
-    # Ovládací prvky pro výběr soutěže a hráče nejsou součástí tisku
-    st.markdown("<div class='no-print'>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         selected_league_name = st.selectbox(
@@ -171,26 +155,11 @@ def page_single_player_view():
         else:
             st.info("Nejprve vyberte soutěž.")
             selected_player = None
-    st.markdown("</div>", unsafe_allow_html=True)
 
     # Spusť výpočty až pokud je zvolená soutěž i hráč
     if selected_league_name and selected_player and (player_df_filtered is not None):
         result = analyze_player(selected_player, player_df_filtered, avg_df_filtered)
 
-        # CSS a obal pro tisk – tiskne se pouze tato sekce (od jména hráče), ovládací prvky jsou skryté
-        st.markdown(
-            """
-            <style>
-            @media print {
-              .no-print, .stButton, .stDownloadButton, [data-testid=stSidebar], [data-testid=stToolbar], header, footer { display: none !important; }
-              .block-container { max-width: 100% !important; padding-top: 0 !important; }
-              #print-area { position: static !important; width: 100% !important; }
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown("<div id='print-area'>", unsafe_allow_html=True)
         st.markdown(result["full_header_block"], unsafe_allow_html=True)
 
         st.markdown("---")
@@ -228,45 +197,19 @@ def page_single_player_view():
         st.markdown("---")
         st.markdown("<h3 style='text-align: center;'>🆚 Vlastní srovnání</h3>", unsafe_allow_html=True)
 
-        # Nabídni sloučené skupiny pro křídla (AMRL) a krajní beky (FullBack)
-        raw_positions = sorted(avg_df_filtered[COL_POS].dropna().unique().tolist())
-        base_set = set(raw_positions) - {"AML", "AMR", "DL", "DR"}
-        display_options = sorted(base_set.union({"AMRL", "FullBack"}))
-        selected_display_positions = st.multiselect("Vyberte jednu nebo více pozic pro srovnání:", options=display_options)
+        all_positions = sorted(avg_df_filtered[COL_POS].dropna().unique().tolist())
+        selected_positions = st.multiselect("Vyberte jednu nebo více pozic pro srovnání:", options=all_positions)
 
-        if selected_display_positions:
+        if selected_positions:
             player_series = player_df_filtered[player_df_filtered['Player'] == selected_player].mean(numeric_only=True)
             main_position = player_df_filtered[player_df_filtered['Player'] == selected_player][COL_POS].iloc[0]
             with st.spinner("Počítám vlastní srovnání..."):
-                # Rozbal mapované kategorie na konkrétní pozice
-                expanded_positions = []
-                for pos in selected_display_positions:
-                    if pos == "AMRL":
-                        expanded_positions.extend(["AML", "AMR"])
-                    elif pos == "FullBack":
-                        expanded_positions.extend(["DL", "DR"])
-                    else:
-                        expanded_positions.append(pos)
-                # Unikátní pořadí zachováme dle prvního výskytu
-                seen = set(); expanded_positions = [p for p in expanded_positions if not (p in seen or seen.add(p))]
-                custom_result = get_custom_comparison(player_series, main_position, expanded_positions, avg_df_filtered)
+                custom_result = get_custom_comparison(player_series, main_position, selected_positions, avg_df_filtered)
 
             if "error" in custom_result:
                 st.error(custom_result["error"])
             else:
-                # Styl pro výraznější oddělení bloku vlastního srovnání
-                st.markdown(
-                    """
-                    <style>
-                    .custom-compare-box { border: 2px solid #e6e8eb; border-radius: 10px; padding: 16px; margin: 12px 0 24px 0; background: #fafbfd; }
-                    .custom-compare-box h4 { margin-top: 2px; }
-                    .custom-compare-divider { border-top: 1px solid #e6e8eb; margin: 12px 0 4px 0; }
-                    </style>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.markdown("<div class='custom-compare-box'>", unsafe_allow_html=True)
-                st.markdown(f"<h4 style='text-align: center;'>Rating vs. Vlastní výběr ({', '.join(selected_display_positions)})</h4>", unsafe_allow_html=True)
+                st.markdown(f"<h4 style='text-align: center;'>Rating vs. Vlastní výběr ({', '.join(selected_positions)})</h4>", unsafe_allow_html=True)
                 score_custom_lg = custom_result.get("score_lg", 0)
                 score_custom_tp = custom_result.get("score_tp", 0)
 
@@ -302,10 +245,8 @@ def page_single_player_view():
                     .hide(axis="index")
                 )
                 render_styled_df(styler_sub_custom)
-                st.markdown("<div class='custom-compare-divider'></div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("<h3 style='text-align: center;'>🔍 Sekce</h3>", unsafe_allow_html=True)
+        st.markdown("### 🔍 Sekce")
         styler_sec = (
             result["sec_tbl"].style
             .format(format_percent, na_rep="", subset=numeric_cols)
@@ -315,7 +256,7 @@ def page_single_player_view():
         )
         render_styled_df(styler_sec)
 
-        st.markdown("<h3 style='text-align: center;'>🛠️ Podsekce</h3>", unsafe_allow_html=True)
+        st.markdown("### 🛠️ Podsekce")
         sub_tbl_processed = process_dataframe_for_display(result["sub_tbl"])
         styler_sub = (
             sub_tbl_processed.style
@@ -326,7 +267,7 @@ def page_single_player_view():
         )
         render_styled_df(styler_sub)
 
-        st.markdown("<h3 style='text-align: center;'>📋 Všechny metriky</h3>", unsafe_allow_html=True)
+        st.markdown("### 📋 Všechny metriky")
         styler_all = (
             result["all_metrics"].style
             .format(format_value, subset=["Hráč", "Liga Ø", "TOP Kluby Ø"], na_rep="")
@@ -336,92 +277,12 @@ def page_single_player_view():
             .hide(axis="index")
         )
         render_styled_df(styler_all)
-        # Konec tiskové oblasti – následující ovládací prvky se tisknout nebudou
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # Při změně vybraného hráče zneplatni uloženou AI analýzu, aby se nepřenesla k jinému hráči
-        if st.session_state.get("detail_ai_player_name") and st.session_state.get("detail_ai_player_name") != selected_player:
-            st.session_state.pop("detail_ai_text", None)
-            st.session_state.pop("detail_ai_player_name", None)
-
-        # --- Export PDF ---
-        st.markdown("---")
-        st.markdown("### 📄 Export do PDF")
-        col_export_no_ai, col_export_ai = st.columns(2)
-        with col_export_no_ai:
-            export_no_ai_clicked = st.button("Exportovat PDF (bez AI)")
-        with col_export_ai:
-            ai_ready = (
-                "detail_ai_text" in st.session_state and bool(st.session_state["detail_ai_text"]) and
-                st.session_state.get("detail_ai_player_name") == selected_player
-            )
-            export_with_ai_clicked = st.button("Exportovat PDF (s AI)", type="primary", disabled=not ai_ready)
-            if not ai_ready:
-                st.caption("Nejprve vygenerujte AI analýzu pro právě vybraného hráče.")
-
-        def _do_export(gemini_texts: dict):
-            from pdf_export import (
-                extract_and_process_data_for_pdf,
-                generate_player_report_pdf_full,
-                _load_combined_avg_dataframe,
-            )
-            with st.spinner("Generuji PDF report…"):
-                df_combined_avg = _load_combined_avg_dataframe()
-                if df_combined_avg is None or df_combined_avg.empty:
-                    st.error("AVG průměry nejsou dostupné. Zkontrolujte složku AVG_Parquet.")
-                    return
-                processed = extract_and_process_data_for_pdf(selected_player, player_df_filtered, df_combined_avg)
-                if not processed:
-                    st.error("Nelze připravit data pro PDF pro vybraného hráče.")
-                    return
-                import tempfile, os
-                import datetime as _dt
-                safe_name = processed.get("player_name", selected_player).replace(" ", "_").replace(".", "")
-                filename = f"{safe_name}_{_dt.date.today().strftime('%Y-%m-%d')}_performance_report.pdf"
-                with tempfile.TemporaryDirectory() as _tmpdir:
-                    out_path = os.path.join(_tmpdir, filename)
-                    generate_player_report_pdf_full(processed, gemini_texts, out_path)
-                    if os.path.exists(out_path):
-                        with open(out_path, "rb") as f:
-                            st.download_button(
-                                label="Stáhnout PDF",
-                                data=f.read(),
-                                file_name=filename,
-                                mime="application/pdf",
-                            )
-                    else:
-                        st.error("PDF soubor se nepodařilo vytvořit.")
-
-        if export_no_ai_clicked:
-            _do_export({"cs": "Textová analýza Gemini AI není k dispozici.", "en": ""})
-        if export_with_ai_clicked and ai_ready:
-            _do_export({"cs": st.session_state["detail_ai_text"], "en": ""})
-
-        # Pokud již existuje vygenerovaná AI analýza pro aktuálně vybraného hráče, vypiš ji níže
-        if (
-            st.session_state.get("detail_ai_text") and
-            st.session_state.get("detail_ai_player_name") == selected_player
-        ):
-            st.markdown("---")
-            st.markdown("### 🧠 AI analýza – text")
-            st.markdown(st.session_state["detail_ai_text"])
 
         if st.button("🧠 Vygenerovat AI analýzu", type="primary"):
             with st.spinner("Generuji AI analýzu..."):
                 from player_analysis import generate_ai_analysis
                 ai_text = generate_ai_analysis(selected_player, result["sec_tbl"], result["sub_tbl"], result["all_metrics"], [result["main_position"]])
-            st.session_state["detail_ai_text"] = ai_text
-            st.session_state["detail_ai_player_name"] = selected_player
-            st.success("AI analýza vygenerována. Můžete exportovat PDF s analýzou.")
             st.markdown(ai_text)
-            # Okamžitě znovu vykresli stránku, aby se exportní tlačítko odemklo
-            try:
-                st.rerun()
-            except Exception:
-                try:
-                    st.experimental_rerun()
-                except Exception:
-                    pass
 
 # =============================
 # Pohled: Srovnání hráčů (AgGrid)
@@ -432,9 +293,7 @@ def page_player_comparison():
 
     all_players_df = load_all_player_data()
     avg_files = list(Path(AVG_DATA_DIR).glob("*.parquet"))
-    
-    # Přidej sloupec League podle názvu souboru, aby bylo možné filtrovat sezóny
-    all_avg_dfs = [load_and_process_file(file).assign(League=file.stem) for file in avg_files]
+    all_avg_dfs = [load_and_process_file(file) for file in avg_files]
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
 
@@ -459,30 +318,16 @@ def page_player_comparison():
         min_height, max_height = int(ratings_df['Height'].min()), int(ratings_df['Height'].max())
         height_range = st.slider("Filtrovat výšku (cm):", min_height, max_height, (min_height, max_height))
     with col3:
-        # Bezpečný rozsah pro slider ratingu (očekáváme ~ 50–150, ale ošetříme extrémy/typy)
-        _rat = pd.to_numeric(ratings_df['Rating vs Liga'], errors='coerce').replace([np.inf, -np.inf], np.nan).dropna()
-        if _rat.empty:
-            min_rating, max_rating = 50, 150
-        else:
-            min_raw, max_raw = float(_rat.min()), float(_rat.max())
-            # Svážeme do smysluplného rozsahu a zaokrouhlíme
-            min_rating = int(max(0, np.floor(min(min_raw, 50))))
-            max_rating = int(min(200, np.ceil(max(max_raw, 150))))
-        rating_range = st.slider("Filtrovat Rating vs Liga:", min_rating, max_rating, (min_rating, max_rating), step=1)
+        min_rating, max_rating = int(ratings_df['Rating vs Liga'].dropna().min()), int(ratings_df['Rating vs Liga'].dropna().max())
+        rating_range = st.slider("Filtrovat Rating vs Liga:", min_rating, max_rating, (min_rating, max_rating))
         # Kompaktní výběr soutěží v popoveru, aby se nezahltil layout
         ss = st.session_state
         ss.setdefault("cmp_league_filter", leagues_all)
-        # Odvoď ročníky z nového názvu souboru: soutez_sezona_datum
-        # Bereme prostřední token (sezona), např. "Czechia_24-25_20250101" -> "24-25"
+        # Odvoď ročníky z názvů soutěží (část za posledním podtržítkem)
         def season_of(name: str) -> str:
-            if not isinstance(name, str):
+            if not isinstance(name, str) or "_" not in name:
                 return "ostatní"
-            parts = name.split("_")
-            if len(parts) >= 2:
-                token = parts[1]
-            else:
-                token = name
-            return token.replace("_", "-").replace("/", "-")
+            return name.split("_")[-1]
         seasons_all = sorted({season_of(l) for l in leagues_all})
         default_seasons = [s for s in ["25-26", "2025"] if s in seasons_all]
         ss.setdefault("cmp_league_seasons", default_seasons if default_seasons else seasons_all)
@@ -653,8 +498,7 @@ def page_player_comparison():
 
     gb.configure_column("Player", headerName="Hráč", width=200, filter='agSetColumnFilter')
     gb.configure_column("Team", headerName="Tým", width=150, filter='agSetColumnFilter')
-    left_aligned_style = {'textAlign': 'left'}
-    gb.configure_column("League", headerName="Soutěž", cellStyle=left_aligned_style, width=180, filter='agSetColumnFilter')
+    gb.configure_column("League", headerName="Soutěž", cellStyle=center_aligned_style, width=150, filter='agSetColumnFilter')
     gb.configure_column("Position", headerName="Pozice", cellStyle=center_aligned_style, width=100, filter=False)
     gb.configure_column("Age", headerName="Věk", cellStyle=center_aligned_style, width=80, filter=False, valueFormatter=safeNumberFormatter)
     gb.configure_column("Height", headerName="Výška", cellStyle=center_aligned_style, width=80, filter=False, valueFormatter=safeNumberFormatter)
@@ -742,13 +586,21 @@ def page_player_vs_player():
     combined_avg_df = pd.concat(all_avg_dfs, ignore_index=True)
     avg_df_filtered = combined_avg_df[combined_avg_df["Minutes played"] >= MIN_MINUTES]
 
-    # Helper: nový formát "soutez_sezona_datum" -> vrať prostřední token jako sezónu
+    # Helper: extrahuj token sezóny z názvu soutěže (např. "Czechia_23-24" -> "23-24")
     def extract_season_token(league_name: str) -> str | None:
         if not isinstance(league_name, str):
             return None
-        parts = league_name.split("_")
-        if len(parts) >= 2:
-            return parts[1]
+        # Hledej vzory jako 23-24, 2023-24, 23_24, 2023/24
+        import re
+        patterns = [
+            r"(\b\d{2}[-_/]\d{2}\b)",      # 23-24 nebo 23/24
+            r"(\b\d{4}[-_/]\d{2}\b)",     # 2023-24
+            r"(\b\d{2}[-_/]\d{4}\b)",     # 23-2024
+        ]
+        for p in patterns:
+            m = re.search(p, league_name)
+            if m:
+                return m.group(1).replace('_', '-')
         return None
 
     all_positions = sorted(all_players_df[COL_POS].dropna().unique().tolist())
@@ -813,14 +665,7 @@ def page_player_vs_player():
             df_h2h = filter_by_season(df_h2h, player2, extract_season_token(season2) if season2 else None)
 
             with st.spinner(f"Porovnávám hráče {player1} a {player2}..."):
-                comp = get_player_comparison_data(
-                    player1,
-                    player2,
-                    df_h2h,
-                    avg_df_filtered,
-                    season1 if season1 else None,
-                    season2 if season2 else None,
-                )
+                comp = get_player_comparison_data(player1, player2, df_h2h, avg_df_filtered)
 
             ss.h2h_compared = True
             ss.h2h_pair = (player1, player2)
@@ -942,139 +787,6 @@ def page_player_vs_player():
             
 
 # =============================
-# PDF Report
-# =============================
-
-def page_pdf_report():
-    """Stránka pro generování PDF reportů z XLSX souboru"""
-    st.title("📄 Generování PDF Reportů")
-    
-    st.markdown("""
-    ### Jak to funguje:
-    1. **Nahrajte XLSX soubor** s daty hráčů
-    2. **Klikněte na "Generovat PDF"** 
-    3. **Stáhněte si** vygenerované PDF reporty přímo z prohlížeče
-    
-    **📝 Důležité:** Pro každého hráče z nahraného souboru se vygeneruje samostatný PDF report.
-    
-    PDF reporty budou obsahovat:
-    - 📊 Celkový rating vs. Liga a TOP kluby
-    - 📈 Detailní analýzu podle sekcí a sub-sekcí
-    - 🤖 AI analýzu výkonnosti hráče
-    - 📋 Přehled všech relevantních metrik
-    """)
-    
-    # Nahrání souboru
-    uploaded_file = st.file_uploader(
-        "Vyberte XLSX soubor s daty hráčů:",
-        type=['xlsx'],
-        help="Soubor musí obsahovat sloupce: Player, Team, Position, Minutes played a další metriky"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            # Uložení dočasného souboru
-            temp_file_path = f"temp_{uploaded_file.name}"
-            with open(temp_file_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            
-            st.success(f"✅ Soubor '{uploaded_file.name}' byl úspěšně nahrán!")
-            # Načtení jmen hráčů ze souboru pro výběr konkrétního reportu
-            try:
-                df_preview = pd.read_excel(temp_file_path, engine="openpyxl")
-                player_options = sorted([p for p in df_preview.get("Player", pd.Series(dtype=str)).dropna().astype(str).unique()])
-            except Exception:
-                player_options = []
-
-            selected_player = None
-            if player_options:
-                selected_player = st.selectbox("Vyberte hráče pro PDF report (volitelné):", ["(první v souboru)"] + player_options)
-                if selected_player == "(první v souboru)":
-                    selected_player = None
-            
-            # Tlačítko pro generování PDF
-            if st.button("🚀 Generovat PDF Reporty", type="primary"):
-                with st.spinner("Generuji PDF reporty... Může to trvat několik minut."):
-                    try:
-                        # Import PDF exportu (detailní varianta vrací i důvody přeskočení)
-                        from pdf_export import generate_all_players_reports_web_detailed
-                        
-                        # Vytvoření dočasné složky pro PDF soubory
-                        temp_pdf_dir = "temp_pdf_reports"
-                        os.makedirs(temp_pdf_dir, exist_ok=True)
-                        
-                        # Spuštění generování s dočasnou složkou (detailní výstup)
-                        generated_files, skipped = generate_all_players_reports_web_detailed(temp_file_path, temp_pdf_dir)
-                        
-                        if generated_files:
-                            st.success(f"🎉 PDF reporty byly úspěšně vygenerovány! ({len(generated_files)} souborů)")
-                            
-                            # Zobrazení informace o počtu hráčů
-                            st.info(f"📊 Bylo zpracováno {len(generated_files)} hráčů z nahraného souboru.")
-                            
-                            st.markdown("### 📥 Stáhnout PDF Reporty:")
-                            
-                            for pdf_file in generated_files:
-                                # Získání názvu souboru
-                                filename = os.path.basename(pdf_file)
-                                
-                                # Načtení PDF souboru
-                                with open(pdf_file, "rb") as f:
-                                    pdf_data = f.read()
-                                
-                                # Tlačítko pro stažení
-                                st.download_button(
-                                    label=f"📄 Stáhnout {filename}",
-                                    data=pdf_data,
-                                    file_name=filename,
-                                    mime="application/pdf",
-                                    key=f"download_{filename}"
-                                )
-                        # Zobrazení informací o přeskočených hráčích (pokud existují)
-                        if 'skipped' in locals() and skipped:
-                            st.markdown("### ⚠️ Přeskočení hráči a důvody")
-                            try:
-                                st.dataframe(pd.DataFrame(skipped), use_container_width=True)
-                            except Exception:
-                                for item in skipped:
-                                    st.write(f"- {item.get('player', 'N/A')}: {item.get('reason', 'bez důvodu')}")
-                        if not generated_files:
-                            st.warning("⚠️ Nebyly vygenerovány žádné PDF soubory.")
-                        
-                    except Exception as e:
-                        st.error(f"❌ Chyba při generování PDF: {str(e)}")
-                        st.exception(e)
-                    finally:
-                        # Smazání dočasného souboru
-                        if os.path.exists(temp_file_path):
-                            os.remove(temp_file_path)
-                            
-        except Exception as e:
-            st.error(f"❌ Chyba při nahrávání souboru: {str(e)}")
-            st.exception(e)
-    
-    # Informace o formátu souboru
-    with st.expander("📋 Požadovaný formát XLSX souboru"):
-        st.markdown("""
-        **Povinné sloupce:**
-        - `Player` - Jméno hráče
-        - `Team` - Název klubu  
-        - `Position` - Pozice hráče
-        - `Minutes played` - Odehrané minuty
-        - `Age` - Věk hráče
-        - `Height` - Výška (cm)
-        - `Weight` - Váha (kg)
-        
-        **Doporučené metriky:**
-        - Všechny metriky s příponou "per 90"
-        - Procentuální metriky (úspěšnost, přesnost)
-        - Defenzivní a ofenzivní metriky
-        - Metriky pro přihrávky a střelbu
-        
-        **Poznámka:** Hráči s méně než 300 odehranými minutami budou automaticky vyřazeni z analýzy.
-        """)
-
-# =============================
 # Router
 # =============================
 
@@ -1086,5 +798,3 @@ elif app_mode == "AI Skaut":
     page_ai_scout()
 elif app_mode == "Hráč vs. Hráč":
     page_player_vs_player()
-elif app_mode == "PDF Report":
-    page_pdf_report()

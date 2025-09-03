@@ -25,7 +25,7 @@ LOGIC_JSON = Path("metric_logic.json")
 LOGO_DIR = Path("./logos")
 TOP_CLUBS = ["Slavia Praha", "Sparta Praha", "Viktoria Plzeň"]
 COL_POS = "Converted Position"
-MIN_MINUTES = 300
+MIN_MINUTES = 500
 
 
 
@@ -124,8 +124,8 @@ def get_position_averages_cached(positions: tuple, avg_df_pos_filtered: pd.DataF
 
     pl_df = pl.from_pandas(avg_df_pos_filtered[use_cols])
 
-    # Všechny řádky z AVG pro danou pozici jsou součástí velkého celku - neslučuj průměry hráčů
-    lg_avg_row = pl_df.select([pl.col(c).mean().alias(c) for c in numeric_cols]).to_pandas().iloc[0]
+    per_player = pl_df.group_by("Player").agg([pl.col(c).mean().alias(c) for c in numeric_cols])
+    lg_avg_row = per_player.select([pl.col(c).mean().alias(c) for c in numeric_cols]).to_pandas().iloc[0]
     lg_avg = pd.Series(lg_avg_row, index=numeric_cols, dtype="float64")
 
     if "Team" in pl_df.columns:
@@ -135,8 +135,8 @@ def get_position_averages_cached(positions: tuple, avg_df_pos_filtered: pd.DataF
     if top_pl.is_empty():
         tp_avg = pd.Series(dtype='float64')
     else:
-        # Všechny řádky z TOP klubů pro danou pozici jsou součástí velkého celku - neslučuj průměry hráčů
-        tp_avg_row = top_pl.select([pl.col(c).mean().alias(c) for c in numeric_cols]).to_pandas().iloc[0]
+        per_player_tp = top_pl.group_by("Player").agg([pl.col(c).mean().alias(c) for c in numeric_cols])
+        tp_avg_row = per_player_tp.select([pl.col(c).mean().alias(c) for c in numeric_cols]).to_pandas().iloc[0]
         tp_avg = pd.Series(tp_avg_row, index=numeric_cols, dtype="float64")
 
     return lg_avg, tp_avg
@@ -164,16 +164,10 @@ def load_all_player_data() -> pd.DataFrame:
     return combined_df[combined_df["Minutes played"] >= MIN_MINUTES]
 
 
-def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame, override_position: str | None = None, season_token: str | None = None) -> Dict[str, Any]:
+def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame, override_position: str | None = None) -> Dict[str, Any]:
     logic_data = get_logic_definition()
     
     player_rows = player_df[player_df["Player"] == player_name]
-    if season_token and not player_rows.empty:
-        # Omez řádky hráče pouze na vybranou sezónu podle názvu soutěže (pokud sloupec existuje)
-        for col in ["League", "league", "LEAGUE"]:
-            if col in player_rows.columns:
-                player_rows = player_rows[player_rows[col].astype(str).str.contains(season_token, na=False)]
-                break
     p_avg = player_rows.mean(numeric_only=True)
     detected_position = player_rows[COL_POS].iloc[0]
     main_position = override_position if override_position else detected_position
@@ -182,9 +176,10 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
     avg_df_pos_filtered = avg_df[avg_df[COL_POS].isin(positions_to_filter)]
     
     if avg_df_pos_filtered.empty:
-        st.warning(f"Pro pozice '{', '.join(positions_to_filter)}' nebyla v této sezóně nalezena srovnávací data.")
+        st.warning(f"Pro pozice '{', '.join(positions_to_filter)}' nebyla nalezena žádná srovnávací data.")
+        avg_df_pos_filtered = avg_df
 
-    # Získej cachované průměry pro danou pozici A SEZÓNU (součástí klíče cache je i filtr)
+    # Získej cachované průměry pro danou pozici
     lg_avg, tp_avg = get_position_averages_cached(tuple(positions_to_filter), avg_df_pos_filtered)
 
     rat_lg = rating_series(p_avg, lg_avg)
@@ -214,7 +209,7 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
     'Clean sheets', 'Conceded goals', 'Conceded goals per 90', 'Exits per 90',
     'Prevented goals', 'Prevented goals per 90', 'Save rate',
     'Shots against', 'Shots against per 90', 'xG against', 'xG against per 90',
-    'Back passes received as GK per 90',"Aerial duels per 90.1"
+    'Back passes received as GK per 90'
 ]
     common_metrics = p_avg.index.intersection(lg_avg.index)
 
@@ -258,8 +253,7 @@ def analyze_player(player_name: str, player_df: pd.DataFrame, avg_df: pd.DataFra
     return {
         "full_header_block": full_header_block,
         "logo_path": str(logo_path) if logo_path else None,
-        "score_lg": round(score_lg, 2) if pd.notna(score_lg) else score_lg, 
-        "score_tp": round(score_tp, 2) if pd.notna(score_tp) else score_tp,
+        "score_lg": score_lg, "score_tp": score_tp,
         "sec_tbl": sec_tbl, "sub_tbl": sub_tbl,
         "all_metrics": all_metrics_tbl,
         "main_position": main_position,
@@ -277,10 +271,9 @@ def calculate_all_player_metrics_and_ratings(all_players_df: pd.DataFrame, all_a
         positions_to_filter = get_positions_for_avg_filter(pos)
         avg_df_pos_filtered = all_avg_df[all_avg_df[COL_POS].isin(positions_to_filter)]
         if not avg_df_pos_filtered.empty:
-            # Všechny řádky z AVG pro danou pozici jsou součástí velkého celku - neslučuj průměry hráčů
-            lg_avg = avg_df_pos_filtered.mean(numeric_only=True)
+            lg_avg = avg_df_pos_filtered.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
             top_clubs_df = avg_df_pos_filtered[avg_df_pos_filtered["Team"].isin(TOP_CLUBS)]
-            tp_avg = pd.Series(dtype='float64') if top_clubs_df.empty else top_clubs_df.mean(numeric_only=True)
+            tp_avg = pd.Series(dtype='float64') if top_clubs_df.empty else top_clubs_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
             avg_calcs[pos] = {'lg': lg_avg, 'tp': tp_avg}
     
     def _compute_row(record: dict) -> dict | None:
@@ -312,7 +305,7 @@ def calculate_all_player_metrics_and_ratings(all_players_df: pd.DataFrame, all_a
     
     final_df = pd.DataFrame(results)
     rating_cols = ['Rating vs Liga', 'Rating vs TOP Kluby']
-    final_df[rating_cols] = final_df[rating_cols].round(2)
+    final_df[rating_cols] = final_df[rating_cols].round(0)
     column_order = ['Player', 'Team', 'League', 'Position', 'Age', 'Height', 'Foot', "Minutes", 'Market value', 'Rating vs Liga', 'Rating vs TOP Kluby']
     return final_df.reindex(columns=column_order)
 
@@ -326,10 +319,9 @@ def enrich_data_for_ai_scout(all_players_df: pd.DataFrame, all_avg_df: pd.DataFr
         positions_to_filter = get_positions_for_avg_filter(pos)
         avg_df_pos_filtered = all_avg_df[all_avg_df[COL_POS].isin(positions_to_filter)]
         if not avg_df_pos_filtered.empty:
-            # Všechny řádky z AVG pro danou pozici jsou součástí velkého celku - neslučuj průměry hráčů
-            lg_avg = avg_df_pos_filtered.mean(numeric_only=True)
+            lg_avg = avg_df_pos_filtered.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
             top_clubs_df = avg_df_pos_filtered[avg_df_pos_filtered["Team"].isin(TOP_CLUBS)]
-            tp_avg = pd.Series(dtype='float64') if top_clubs_df.empty else top_clubs_df.mean(numeric_only=True)
+            tp_avg = pd.Series(dtype='float64') if top_clubs_df.empty else top_clubs_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
             avg_calcs[pos] = {'lg': lg_avg, 'tp': tp_avg}
     def _enrich_row(record: dict) -> dict | None:
         main_position_local = record.get(COL_POS)
@@ -414,22 +406,7 @@ def generate_ai_analysis(player_name: str, sec_tbl: pd.DataFrame, sub_tbl: pd.Da
         msg = Content(role="user", parts=[Part.from_text(prompt)])
         config = GenerationConfig(max_output_tokens=10000, temperature=0.5, top_k=30)
         response = model.generate_content([msg], generation_config=config)
-        text = response.text or ""
-        # Odstraň typické úvodní fráze a zbytečné prefixy
-        try:
-            import re
-            # řádky začínající typickými frázemi přeskoč
-            cleaned_lines = []
-            for ln in (text.split('\n')):
-                if re.match(r'^\s*(Jistě,|Samozřejmě,|Určitě,|Zde je|Níže je)\b', ln, flags=re.IGNORECASE):
-                    continue
-                if re.match(r'^---\s*$', ln):
-                    continue
-                cleaned_lines.append(ln)
-            text = '\n'.join(cleaned_lines).strip()
-        except Exception:
-            pass
-        return text
+        return response.text
     except Exception as e:
         return f"Došlo k chybě při generování AI analýzy: {e}"
 
@@ -444,16 +421,14 @@ def get_custom_comparison(player_series: pd.Series, main_position: str, custom_p
     custom_avg_df = all_avg_df[all_avg_df[COL_POS].isin(custom_positions)]
     if custom_avg_df.empty:
         return {"error": "Pro vybrané pozice nebyla nalezena žádná srovnávací data."}
-    # Všechny řádky z AVG pro danou pozici jsou součástí velkého celku - neslučuj průměry hráčů
-    custom_avg = custom_avg_df.mean(numeric_only=True)
+    custom_avg = custom_avg_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
 
     # Průměry pro vybrané pozice omezené na TOP kluby
     top_df = custom_avg_df[custom_avg_df["Team"].isin(TOP_CLUBS)]
     if top_df.empty:
         custom_top_avg = pd.Series(dtype='float64')
     else:
-        # Všechny řádky z TOP klubů pro danou pozici jsou součástí velkého celku - neslučuj průměry hráčů
-        custom_top_avg = top_df.mean(numeric_only=True)
+        custom_top_avg = top_df.groupby("Player").mean(numeric_only=True).mean(numeric_only=True)
 
     # Výpočet ratingů
     rat_custom = rating_series(player_series, custom_avg)
@@ -483,30 +458,9 @@ def get_custom_comparison(player_series: pd.Series, main_position: str, custom_p
     }
 
 
-def get_player_comparison_data(player1_name: str, player2_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame, season1_token: str | None = None, season2_token: str | None = None) -> Dict[str, Any]:
-    # Filtruj srovnávací (liga) data podle zvolených sezón pro každého hráče
-    def _filter_avg_for_season(df: pd.DataFrame, token: str | None) -> pd.DataFrame:
-        if not token or df is None or df.empty:
-            return df
-        for col in ["League", "league", "LEAGUE"]:
-            if col in df.columns:
-                return df[df[col].astype(str).str.contains(token, na=False)]
-        # Pokud sloupec neexistuje, vrať původní df (bez filtru), ale je to signál k nápravě zdroje
-        return df
-
-    avg_df_p1 = _filter_avg_for_season(avg_df, season1_token)
-    avg_df_p2 = _filter_avg_for_season(avg_df, season2_token)
-
-    # Omez i profil hráče (jeho vlastní řádky) na zvolenou sezónu
-    df_p1 = player_df
-    df_p2 = player_df
-    if season1_token:
-        df_p1 = df_p1[df_p1['League'].astype(str).str.contains(season1_token, na=False)]
-    if season2_token:
-        df_p2 = df_p2[df_p2['League'].astype(str).str.contains(season2_token, na=False)]
-
-    result1 = analyze_player(player1_name, df_p1, avg_df_p1, season_token=season1_token)
-    result2 = analyze_player(player2_name, df_p2, avg_df_p2, season_token=season2_token)
+def get_player_comparison_data(player1_name: str, player2_name: str, player_df: pd.DataFrame, avg_df: pd.DataFrame) -> Dict[str, Any]:
+    result1 = analyze_player(player1_name, player_df, avg_df)
+    result2 = analyze_player(player2_name, player_df, avg_df)
 
     p1_name_short = player1_name.split(' ')[-1]
     p2_name_short = player2_name.split(' ')[-1]
