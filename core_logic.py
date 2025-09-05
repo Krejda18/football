@@ -1,6 +1,19 @@
 # core_logic.py
 import pandas as pd
 from pathlib import Path
+import os
+import json
+from typing import Any, Optional
+
+"""Sjednocená konfigurace pro všechny moduly využívající Gemini."""
+GEMINI_PROJECT_ID: str = os.environ.get("GEMINI_PROJECT_ID", "inside-data-story")
+GEMINI_LOCATION: str = os.environ.get("GEMINI_LOCATION", "us-central1")
+GEMINI_MODEL: str = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
+
+# Sjednocené názvy pro zdroje tajemství (ENV / Streamlit / lokální soubor)
+ENV_SECRET_NAME: str = os.environ.get("GCP_SA_ENV_NAME", "GCP_SA_JSON")
+STREAMLIT_SECRET_NAME: str = os.environ.get("STREAMLIT_SA_SECRET_NAME", "gcp_service_account")
+LOCAL_SECRET_PATH: str = os.environ.get("GCP_SA_LOCAL_PATH", "inside-data-story-7ffa725c1408.json")
 
 def get_positions_for_avg_filter(main_position: str) -> list[str]:
     
@@ -17,7 +30,7 @@ def get_positions_for_avg_filter(main_position: str) -> list[str]:
         return ["AMR", "AML"]
     return [main_position]
 
-def _map_position(pos: str, keys: list) -> str or None:
+def _map_position(pos: str, keys: list) -> Optional[str]:
     p = pos.upper()
     if p in keys:
         return p
@@ -292,3 +305,143 @@ def build_head_to_head_prompt(
 
     lines.append("\nPiš stručně, česky, bez superlativů. Zahrň nejistoty (vzorek minut apod.).")
     return "\n".join(lines)
+
+
+# =============================
+# Unified Gemini initialization
+# =============================
+
+def initialize_gemini_shared(
+    project_id: str,
+    location: str,
+    model_name: str,
+    env_secret_name: str = "GCP_SA_JSON",
+    streamlit_secret_name: str = "gcp_service_account",
+    local_secret_path: str = "inside-data-story-7ffa725c1408.json",
+):
+    """Jednotná inicializace Vertex AI Gemini pro všechny moduly.
+
+    Zdroj přihlašovacích údajů (v tomto pořadí):
+    1) ENV proměnná s JSON obsahem (např. Secret Manager → env)
+    2) Lokální JSON soubor (mimo git)
+    3) Streamlit `st.secrets`
+
+    Vrací tuple (model, available). Při chybě vrací (None, False).
+    """
+    # Importy pouze lokálně, aby se nenačetly zbytečně při importu modulu
+    try:
+        import streamlit as st  # type: ignore
+        _has_streamlit = True
+    except Exception:  # pragma: no cover
+        _has_streamlit = False
+
+    try:
+        from google.oauth2 import service_account  # type: ignore
+        import vertexai  # type: ignore
+        from vertexai.generative_models import GenerativeModel  # type: ignore
+    except Exception:
+        if _has_streamlit:
+            st.error("Chybí balíčky google-cloud-aiplatform / google-auth. Nainstalujte je podle requirements.txt.")
+        else:
+            print("Chybí balíčky google-cloud-aiplatform / google-auth.")
+        return None, False
+
+    creds = None
+    secret_info: Optional[Any] = None
+
+    env_val = os.environ.get(env_secret_name)
+    if env_val:
+        try:
+            secret_info = json.loads(env_val)
+            print("--- INFO: Nalezen klíč v proměnné prostředí (ENV). ---")
+        except json.JSONDecodeError as e:
+            if _has_streamlit:
+                st.error(f"Chyba při parsování JSON z proměnné prostředí '{env_secret_name}': {e}")
+            else:
+                print(f"Chyba při parsování JSON z ENV: {e}")
+            return None, False
+    # Alternativa: ENV s cestou k souboru (snadné pro lokální běh)
+    elif os.environ.get("GCP_SA_JSON_PATH") and os.path.exists(os.environ.get("GCP_SA_JSON_PATH", "")):
+        try:
+            with open(os.environ.get("GCP_SA_JSON_PATH", "")) as f:
+                secret_info = json.load(f)
+            print("--- INFO: Nalezen klíč podle ENV GCP_SA_JSON_PATH. ---")
+        except Exception as e:
+            if _has_streamlit:
+                st.error(f"Chyba při čtení souboru definovaného v GCP_SA_JSON_PATH: {e}")
+            else:
+                print(f"Chyba při čtení souboru z GCP_SA_JSON_PATH: {e}")
+            return None, False
+    # Další běžná proměnná – GOOGLE_APPLICATION_CREDENTIALS (cesta k souboru)
+    elif os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") and os.path.exists(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")):
+        try:
+            with open(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")) as f:
+                secret_info = json.load(f)
+            print("--- INFO: Nalezen klíč podle ENV GOOGLE_APPLICATION_CREDENTIALS. ---")
+        except Exception as e:
+            if _has_streamlit:
+                st.error(f"Chyba při čtení souboru z GOOGLE_APPLICATION_CREDENTIALS: {e}")
+            else:
+                print(f"Chyba při čtení souboru z GOOGLE_APPLICATION_CREDENTIALS: {e}")
+            return None, False
+    elif os.path.exists(local_secret_path):
+        try:
+            with open(local_secret_path) as f:
+                secret_info = json.load(f)
+            print(f"--- INFO: Nalezen klíč v lokálním souboru '{local_secret_path}'. ---")
+        except Exception as e:
+            if _has_streamlit:
+                st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
+            else:
+                print(f"Chyba při čtení lokálního souboru s klíčem: {e}")
+            return None, False
+    elif _has_streamlit and hasattr(st, "secrets"):
+        try:
+            # Může vyhodit FileNotFoundError, pokud secrets.toml neexistuje – ošetříme a pokračujeme.
+            if streamlit_secret_name in st.secrets:
+                secret_info = dict(st.secrets[streamlit_secret_name])
+                print("--- INFO: Nalezen klíč ve Streamlit Secrets. ---")
+        except FileNotFoundError:
+            # Žádné secrets – ignorujeme a pokračujeme k další větvi
+            pass
+        except Exception as e:
+            if _has_streamlit:
+                st.error(f"Chyba při čtení Streamlit secrets: {e}")
+            else:
+                print(f"Chyba při čtení Streamlit secrets: {e}")
+            return None, False
+
+    if secret_info:
+        try:
+            creds = service_account.Credentials.from_service_account_info(secret_info)  # type: ignore
+        except Exception as e:
+            if _has_streamlit:
+                st.error(f"Chyba při vytváření přihlašovacích údajů z nalezeného klíče: {e}")
+            else:
+                print(f"Chyba při vytváření přihlašovacích údajů: {e}")
+            return None, False
+    else:
+        msg = (
+            "Chybí přihlašovací údaje pro Google Cloud! Zkontrolujte nastavení pro vaše prostředí:\n\n"
+            f"- Pro Google Cloud Run: nastavte secret v ENV jako '{env_secret_name}'.\n"
+            f"- Pro lokální spuštění: ujistěte se, že existuje soubor '{local_secret_path}'.\n"
+            f"- Pro Streamlit Cloud: přidejte secret s názvem '{streamlit_secret_name}'."
+        )
+        if _has_streamlit:
+            st.error(msg)
+        else:
+            print(msg)
+        return None, False
+
+    try:
+        vertexai.init(project=project_id, location=location, credentials=creds)  # type: ignore
+        model = GenerativeModel(model_name)  # type: ignore
+        print("--- INFO: Vertex AI úspěšně inicializováno (shared). ---")
+        return model, True
+    except Exception as e:
+        warn = f"Klíč byl načten, ale selhala inicializace Vertex AI: {e}"
+        if _has_streamlit:
+            st.warning(warn)
+        else:
+            print(warn)
+        return None, False

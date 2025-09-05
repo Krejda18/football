@@ -224,8 +224,6 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-import vertexai
-from google.oauth2 import service_account
 from vertexai.generative_models import Content, GenerationConfig, GenerativeModel, Part
 
 try:
@@ -236,7 +234,7 @@ except Exception:
 
 
 # Cesty a fonty
-PROMPT_TEMPLATE_FILE = BASE_DIR / "gemini_prompt_template.txt"
+#PROMPT_TEMPLATE_FILE = BASE_DIR / "gemini_prompt_template.txt"
 PATH_FONT_BARLOW_REGULAR = str(BASE_DIR / "fonts/BarlowSemiCondensed-Regular.ttf")
 PATH_FONT_BARLOW_BOLD = str(BASE_DIR / "fonts/BarlowSemiCondensed-Bold.ttf")
 # Cloud Run má zapisovatelný pouze /tmp. Rozlišíme prostředí dle proměnné K_SERVICE.
@@ -244,83 +242,45 @@ IS_CLOUD_RUN = bool(os.getenv("K_SERVICE"))
 TEMP_IMG_DIR = os.path.join(tempfile.gettempdir(), "rbr_gauge_images_pdf") if IS_CLOUD_RUN else str(BASE_DIR / "temp_gauge_images_pdf_v11")
 
 # Gemini (sjednocená inicializace jako v player_analysis)
-SERVICE_ACCOUNT_JSON_PDF = "/Users/krejda/Documents/Python/service-account-key.json"
-PROJECT_ID_PDF, LOCATION_PDF, MODEL_NAME_PDF = "performance-445519", "us-central1", "gemini-2.5-pro"
+PROJECT_ID_PDF, LOCATION_PDF, MODEL_NAME_PDF = cl.GEMINI_PROJECT_ID, cl.GEMINI_LOCATION, cl.GEMINI_MODEL
 GEMINI_TRANSLATION_SEPARATOR = "--- ENGLISH TRANSLATION ---"
 
-# Názvy pro tajné klíče ve všech prostředích – stejné jako v player_analysis
-ENV_SECRET_NAME = "GCP_SA_JSON"
-STREAMLIT_SECRET_NAME = "gcp_service_account"
-LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
+# initialize_gemini_shared použijeme z modulu cl (core_logic)
+
+# Názvy pro tajné klíče bereme centralizovaně z core_logic
+ENV_SECRET_NAME = cl.ENV_SECRET_NAME
+STREAMLIT_SECRET_NAME = cl.STREAMLIT_SECRET_NAME
+LOCAL_SECRET_PATH = cl.LOCAL_SECRET_PATH
 
 
 def initialize_gemini_pdf() -> tuple[GenerativeModel | None, bool]:
-    creds = None
-    secret_info = None
-
-    env_val = os.environ.get(ENV_SECRET_NAME)
-    if env_val:
-        try:
-            secret_info = json.loads(env_val)
-            print("--- INFO: Nalezen klíč v proměnné prostředí (ENV). ---")
-        except json.JSONDecodeError as e:
-            if _HAS_STREAMLIT:
-                st.error(f"Chyba při parsování JSON z proměnné prostředí '{ENV_SECRET_NAME}': {e}")
-            else:
-                print(f"Chyba při parsování JSON z ENV: {e}")
-            return None, False
-    elif os.path.exists(LOCAL_SECRET_PATH):
-        try:
-            with open(LOCAL_SECRET_PATH) as f:
-                secret_info = json.load(f)
-            print(f"--- INFO: Nalezen klíč v lokálním souboru '{LOCAL_SECRET_PATH}'. ---")
-        except Exception as e:
-            if _HAS_STREAMLIT:
-                st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
-            else:
-                print(f"Chyba při čtení lokálního souboru s klíčem: {e}")
-            return None, False
-    elif _HAS_STREAMLIT and hasattr(st, 'secrets') and STREAMLIT_SECRET_NAME in st.secrets:
-        secret_info = dict(st.secrets[STREAMLIT_SECRET_NAME])
-        print("--- INFO: Nalezen klíč ve Streamlit Secrets. ---")
-
-    if secret_info:
-        try:
-            creds = service_account.Credentials.from_service_account_info(secret_info)
-        except Exception as e:
-            if _HAS_STREAMLIT:
-                st.error(f"Chyba při vytváření přihlašovacích údajů z nalezeného klíče: {e}")
-            else:
-                print(f"Chyba při vytváření přihlašovacích údajů: {e}")
-            return None, False
-    else:
-        msg = (
-            "Chybí přihlašovací údaje pro Google Cloud! Zkontrolujte nastavení pro vaše prostředí:\n\n"
-            f"- Pro Google Cloud Run: nastavte secret v ENV jako '{ENV_SECRET_NAME}'.\n"
-            f"- Pro lokální spuštění: ujistěte se, že existuje soubor '{LOCAL_SECRET_PATH}'.\n"
-            f"- Pro Streamlit Cloud: přidejte secret s názvem '{STREAMLIT_SECRET_NAME}'."
-        )
-        if _HAS_STREAMLIT:
-            st.error(msg)
-        else:
-            print(msg)
-        return None, False
-
-    try:
-        vertexai.init(project=PROJECT_ID_PDF, location=LOCATION_PDF, credentials=creds)
-        model = GenerativeModel(MODEL_NAME_PDF)
-        print("--- INFO: Vertex AI (PDF) úspěšně inicializováno. ---")
-        return model, True
-    except Exception as e:
-        warn = f"Klíč byl načten, ale selhala inicializace Vertex AI: {e}"
-        if _HAS_STREAMLIT:
-            st.warning(warn)
-        else:
-            print(warn)
-        return None, False
+    return cl.initialize_gemini_shared(
+        project_id=PROJECT_ID_PDF,
+        location=LOCATION_PDF,
+        model_name=MODEL_NAME_PDF,
+        env_secret_name=ENV_SECRET_NAME,
+        streamlit_secret_name=STREAMLIT_SECRET_NAME,
+        local_secret_path=LOCAL_SECRET_PATH,
+    )
 
 
 _gemini_pdf_renderer, _gemini_pdf_renderer_available = initialize_gemini_pdf()
+
+
+def _get_pdf_gemini_model() -> tuple[Optional[GenerativeModel], bool]:
+    """Zajistí, že máme připravený Gemini model pro PDF (lazy init).
+
+    Pokud inicializace při importu selhala (např. tajemství nebyla dostupná),
+    pokusí se znovu. Vrací (model, dostupnost).
+    """
+    global _gemini_pdf_renderer, _gemini_pdf_renderer_available
+    if not _gemini_pdf_renderer_available or not _gemini_pdf_renderer:
+        model, ok = initialize_gemini_pdf()
+        if ok and model is not None:
+            _gemini_pdf_renderer, _gemini_pdf_renderer_available = model, True
+        else:
+            _gemini_pdf_renderer, _gemini_pdf_renderer_available = None, False
+    return _gemini_pdf_renderer, _gemini_pdf_renderer_available
 
 
 # Styly PDF
@@ -423,13 +383,15 @@ def build_gemini_prompt_from_processed_data_for_pdf(player_info_for_prompt: Dict
 
 def get_gemini_analysis_for_pdf(player_data_for_gemini: Dict[str, Any]) -> Dict[str, str]:
     default_texts = {'cs': "Textová analýza Gemini AI není k dispozici.", 'en': "Gemini AI textual analysis is not available."}
-    if not _gemini_pdf_renderer_available or not _gemini_pdf_renderer:
+    model, available = _get_pdf_gemini_model()
+    if not available or model is None:
         return default_texts
     try:
+        # Postavíme prompt PŘÍMO přes core_logic.build_prompt (uvnitř helperu)
         prompt = build_gemini_prompt_from_processed_data_for_pdf(player_data_for_gemini)
         msg = Content(role="user", parts=[Part.from_text(prompt)])
         generation_config = GenerationConfig(max_output_tokens=8192, temperature=0.6, top_p=0.9, top_k=35)
-        response = _gemini_pdf_renderer.generate_content([msg], generation_config=generation_config)
+        response = model.generate_content([msg], generation_config=generation_config)
         full_text = response.text
         if GEMINI_TRANSLATION_SEPARATOR in full_text:
             parts = full_text.split(GEMINI_TRANSLATION_SEPARATOR, 1)

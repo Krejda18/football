@@ -8,14 +8,14 @@ from typing import Dict, Any, List
 from joblib import Parallel, delayed
 import polars as pl
 
-from google.oauth2 import service_account
-import vertexai
 from vertexai.generative_models import GenerativeModel, Content, Part, GenerationConfig
 import os
 from core_logic import (
     compute_loose_ball_duels, compute_effective_passing_index,
     rating_series, weighted_score, logic_flat_df, breakdown_scores, build_prompt,
-    get_positions_for_avg_filter, build_ai_scout_prompt, build_head_to_head_prompt
+    get_positions_for_avg_filter, build_ai_scout_prompt, build_head_to_head_prompt,
+    initialize_gemini_shared, GEMINI_PROJECT_ID, GEMINI_LOCATION, GEMINI_MODEL,
+    ENV_SECRET_NAME, STREAMLIT_SECRET_NAME, LOCAL_SECRET_PATH
 )
 
 # --- Konfigurace ---
@@ -29,20 +29,17 @@ MIN_MINUTES = 300
 
 
 
-# --- Konfigurace pro Google Cloud & Gemini ---
-PROJECT_ID = "inside-data-story"
-LOCATION = "us-central1"
-MODEL_NAME = "gemini-2.5-pro"  # Opravený název modelu
+# --- Konfigurace pro Google Cloud & Gemini (sjednoceno z core_logic) ---
+PROJECT_ID = GEMINI_PROJECT_ID
+LOCATION = GEMINI_LOCATION
+MODEL_NAME = GEMINI_MODEL
 
 # --- Paralelizace (konfigurovatelné přes ENV) ---
 JOBLIB_N_JOBS = int(os.environ.get("JOBLIB_N_JOBS", "2"))
 JOBLIB_BACKEND = os.environ.get("JOBLIB_BACKEND", "loky")  # "loky"=procesy (CPU), "threading"=vlákna (I/O)
 AVAILABLE_JOBS = min(JOBLIB_N_JOBS, (os.cpu_count() or JOBLIB_N_JOBS))
 
-# Názvy pro tajné klíče v různých prostředích
-ENV_SECRET_NAME = "GCP_SA_JSON"
-STREAMLIT_SECRET_NAME = "gcp_service_account"
-LOCAL_SECRET_PATH = "inside-data-story-af484f6c4b69.json"
+# Názvy tajemství jsou centralizované v core_logic (viz import výše)
 
 # Metriky, které nechci v přehledu "Všechny metriky" a v H2H srovnání metrik
 EXCLUDE_FROM_ALL_METRICS = {
@@ -56,49 +53,14 @@ EXCLUDE_FROM_ALL_METRICS = {
 
 @st.cache_resource
 def initialize_gemini() -> tuple[GenerativeModel | None, bool]:
-    creds = None
-    secret_info = None
-    env_val = os.environ.get(ENV_SECRET_NAME)
-    if env_val:
-        try:
-            secret_info = json.loads(env_val)
-            print("--- INFO: Nalezen klíč v proměnné prostředí (ENV). ---")
-        except json.JSONDecodeError as e:
-            st.error(f"Chyba při parsování JSON z proměnné prostředí '{ENV_SECRET_NAME}': {e}")
-            return None, False
-    elif os.path.exists(LOCAL_SECRET_PATH):
-        try:
-            with open(LOCAL_SECRET_PATH) as f:
-                secret_info = json.load(f)
-            print(f"--- INFO: Nalezen klíč v lokálním souboru '{LOCAL_SECRET_PATH}'. ---")
-        except Exception as e:
-            st.error(f"Chyba při čtení lokálního souboru s klíčem: {e}")
-            return None, False
-    elif hasattr(st, 'secrets') and STREAMLIT_SECRET_NAME in st.secrets:
-        secret_info = dict(st.secrets[STREAMLIT_SECRET_NAME])
-        print("--- INFO: Nalezen klíč ve Streamlit Secrets. ---")
-    if secret_info:
-        try:
-            creds = service_account.Credentials.from_service_account_info(secret_info)
-        except Exception as e:
-            st.error(f"Chyba při vytváření přihlašovacích údajů z nalezeného klíče: {e}")
-            return None, False
-    else:
-        st.error(
-            "Chybí přihlašovací údaje pro Google Cloud! Zkontrolujte nastavení pro vaše prostředí:\n\n"
-            f"- **Pro Google Cloud Run:** Ujistěte se, že máte nastavený secret jako proměnnou prostředí s názvem `{ENV_SECRET_NAME}`.\n"
-            f"- **Pro lokální spuštění:** Ujistěte se, že v kořenovém adresáři existuje soubor `{LOCAL_SECRET_PATH}`.\n"
-            f"- **Pro Streamlit Cloud:** Ujistěte se, že máte v nastavení aplikace přidaný secret s názvem `{STREAMLIT_SECRET_NAME}`."
-        )
-        return None, False
-    try:
-        vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=creds)
-        model = GenerativeModel(MODEL_NAME)
-        print("--- INFO: Vertex AI úspěšně inicializováno. ---")
-        return model, True
-    except Exception as e:
-        st.warning(f"Klíč byl načten, ale selhala inicializace Vertex AI: {e}")
-        return None, False
+    return initialize_gemini_shared(
+        project_id=PROJECT_ID,
+        location=LOCATION,
+        model_name=MODEL_NAME,
+        env_secret_name=ENV_SECRET_NAME,
+        streamlit_secret_name=STREAMLIT_SECRET_NAME,
+        local_secret_path=LOCAL_SECRET_PATH,
+    )
 
 # --- Cachované funkce ---
 # <<< ZMĚNA ZDE: Funkce nyní čte Parquet soubory, což je mnohem rychlejší >>>
