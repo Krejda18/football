@@ -23,7 +23,7 @@ with right_col:
     st.image("logo.png", width=500)
 
 st.sidebar.title("Navigace")
-app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče", "AI Skaut", "Hráč vs. Hráč [Beta]", "PDF Report"])
+app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče", "AI Skaut [Beta]", "Hráč vs. Hráč", "PDF Report"])
 
 # --- Zúžení sidebaru ---
 st.markdown(
