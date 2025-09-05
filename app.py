@@ -403,7 +403,6 @@ def page_single_player_view():
             st.session_state.get("detail_ai_player_name") == selected_player
         ):
             st.markdown("---")
-            st.markdown("### 🧠 AI analýza – text")
             st.markdown(st.session_state["detail_ai_text"])
 
         if st.button("🧠 Vygenerovat AI analýzu", type="primary"):
@@ -1082,7 +1081,7 @@ if app_mode == "Detail hráče":
     page_single_player_view()
 elif app_mode == "Srovnání hráčů":
     page_player_comparison()
-elif app_mode == "AI Skaut":
+elif app_mode in ("AI Skaut", "AI Skaut [Beta]"):
     page_ai_scout()
 elif app_mode == "Hráč vs. Hráč":
     page_player_vs_player()
