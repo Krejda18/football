@@ -13,7 +13,7 @@ GEMINI_MODEL: str = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
 # Sjednocené názvy pro zdroje tajemství (ENV / Streamlit / lokální soubor)
 ENV_SECRET_NAME: str = os.environ.get("GCP_SA_ENV_NAME", "GCP_SA_JSON")
 STREAMLIT_SECRET_NAME: str = os.environ.get("STREAMLIT_SA_SECRET_NAME", "gcp_service_account")
-LOCAL_SECRET_PATH: str = os.environ.get("GCP_SA_LOCAL_PATH", "inside-data-story-7ffa725c1408.json")
+LOCAL_SECRET_PATH: str = os.environ.get("GCP_SA_LOCAL_PATH", "/Users/krejda/Documents/Python/Football/inside-data-story-7ffa725c1408.json")
 
 def get_positions_for_avg_filter(main_position: str) -> list[str]:
     
@@ -315,9 +315,9 @@ def initialize_gemini_shared(
     project_id: str,
     location: str,
     model_name: str,
-    env_secret_name: str = "GCP_SA_JSON",
-    streamlit_secret_name: str = "gcp_service_account",
-    local_secret_path: str = "inside-data-story-7ffa725c1408.json",
+    env_secret_name: str = ENV_SECRET_NAME,
+    streamlit_secret_name: str = STREAMLIT_SECRET_NAME,
+    local_secret_path: str = LOCAL_SECRET_PATH,
 ):
     """Jednotná inicializace Vertex AI Gemini pro všechny moduly.
 
@@ -425,6 +425,7 @@ def initialize_gemini_shared(
             "Chybí přihlašovací údaje pro Google Cloud! Zkontrolujte nastavení pro vaše prostředí:\n\n"
             f"- Pro Google Cloud Run: nastavte secret v ENV jako '{env_secret_name}'.\n"
             f"- Pro lokální spuštění: ujistěte se, že existuje soubor '{local_secret_path}'.\n"
+            f"- Alternativně nastavte ENV 'GCP_SA_JSON_PATH' nebo 'GOOGLE_APPLICATION_CREDENTIALS' na cestu k .json klíči.\n"
             f"- Pro Streamlit Cloud: přidejte secret s názvem '{streamlit_secret_name}'."
         )
         if _has_streamlit:
