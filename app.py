@@ -23,7 +23,7 @@ with right_col:
     st.image("logo.png", width=500)
 
 st.sidebar.title("Navigace")
-app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče", "AI Skaut", "Hráč vs. Hráč", "PDF Report"])
+app_mode = st.sidebar.radio("Zvolte pohled:", ["Srovnání hráčů", "Detail hráče", "AI Skaut", "Hráč vs. Hráč [Beta]", "PDF Report"])
 
 # --- Zúžení sidebaru ---
 st.markdown(
@@ -484,7 +484,7 @@ def page_player_comparison():
                 token = name
             return token.replace("_", "-").replace("/", "-")
         seasons_all = sorted({season_of(l) for l in leagues_all})
-        default_seasons = [s for s in ["25-26", "2025"] if s in seasons_all]
+        default_seasons = [s for s in ["25-26", "25"] if s in seasons_all]
         ss.setdefault("cmp_league_seasons", default_seasons if default_seasons else seasons_all)
         pop = st.popover("Soutěž", use_container_width=True)
         with pop:
