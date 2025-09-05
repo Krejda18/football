@@ -26,7 +26,7 @@ def get_positions_for_avg_filter(main_position: str) -> list[str]:
     if main_position in ["DR", "DL"]:
         return ["DR", "DL"]
     # Podpora sloučené kategorie křídel ARML (RW/LW/RAMF/LAMF apod.)
-    if main_position == "ARML" or main_position in ["AMR", "AML"]:
+    if main_position in ["AMR", "AML"]:
         return ["AMR", "AML"]
     return [main_position]
 
