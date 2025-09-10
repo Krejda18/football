@@ -790,14 +790,15 @@ def page_player_vs_player():
     ss = st.session_state
     ss.setdefault("h2h_compared", False)
     ss.setdefault("h2h_pair", (None, None))
+    ss.setdefault("h2h_seasons", (None, None))
     ss.setdefault("h2h_last_comp", None)
     ss.setdefault("h2h_ai_text", None)
 
     if st.button("🔍 Porovnat hráče", type="primary"):
         if not player1 or not player2:
             st.warning("Prosím, vyberte oba hráče pro srovnání.")
-        elif player1 == player2:
-            st.warning("Prosím, vyberte dva různé hráče.")
+        elif player1 == player2 and season1 == season2:
+            st.warning("Prosím, vyberte buď dva různé hráče, nebo stejného hráče v různých sezónách.")
         else:
             df_h2h = all_players_df.copy()
 
@@ -822,7 +823,9 @@ def page_player_vs_player():
                 )
 
             ss.h2h_compared = True
+            # Ulož informaci o hráčích a sezónách pro správné rozpoznání změn
             ss.h2h_pair = (player1, player2)
+            ss.h2h_seasons = (season1, season2)
             ss.h2h_last_comp = comp
             ss.h2h_ai_text = None
 
@@ -928,8 +931,13 @@ def page_player_vs_player():
         st.markdown("---")
         st.subheader("🧠 AI H2H analýza")
 
-        same_pair = ss.h2h_pair == (player1, player2)
-        if same_pair:
+        # Zkontroluj, zda se změnili hráči nebo sezóny
+        current_pair = (player1, player2)
+        current_seasons = (season1, season2)
+        same_comparison = (ss.h2h_pair == current_pair and 
+                          ss.get("h2h_seasons", (None, None)) == current_seasons)
+        
+        if same_comparison:
             if st.button("Vygenerovat AI porovnání"):
                 with st.spinner("AI tvoří porovnání..."):
                     ss.h2h_ai_text = analyze_head_to_head(player1, player2, all_players_df, avg_df_filtered)
